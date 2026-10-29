@@ -12,10 +12,16 @@ router.get('/readings', ReadingController.getReadings);
 router.get('/readings/latest', ReadingController.getLatestReading);
 router.get('/readings/stats', ReadingController.getStats);
 
-// Device registration & management (Location is tracked here!)
+// Device registration & metadata
 router.post('/devices', ReadingController.registerDevice);
 router.get('/devices', ReadingController.getDevices);
 router.get('/devices/:deviceId', ReadingController.getDeviceById);
 router.put('/devices/:deviceId', ReadingController.updateDevice);
+
+// ESP Health & Liveness Checking
+router.post('/devices/:deviceId/heartbeat', ReadingController.recordHeartbeat); // ESP reports it is alive
+router.get('/devices/:deviceId/health', ReadingController.getDeviceHealth);     // Check whether ESP is ON or OFF
+router.get('/devices/:deviceId/ping', ReadingController.pingDevice);           // Active HTTP probe to ESP
+router.post('/devices/:deviceId/ping', ReadingController.pingDevice);          // Active HTTP probe to ESP
 
 export default router;

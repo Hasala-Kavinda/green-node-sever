@@ -50,13 +50,26 @@ export const registerDeviceSchema = z.object({
     .uuid({ message: 'deviceId must be a valid UUID (e.g. 123e4567-e89b-12d3-a456-426614174000)' })
     .transform((val) => val.toLowerCase()),
   name: z.string().min(1).max(100).optional(),
-  location: z.string().min(1, 'location cannot be empty').max(150, 'location too long')
+  location: z.string().min(1, 'location cannot be empty').max(150, 'location too long'),
+  ipAddress: z.string().optional(),
+  port: z.number().int().min(1).max(65535).optional().default(80),
+  heartbeatTimeoutSeconds: z.number().int().min(5).max(86400).optional().default(60)
 });
 
 export const updateDeviceSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   location: z.string().min(1).max(150).optional(),
+  ipAddress: z.string().optional(),
+  port: z.number().int().min(1).max(65535).optional(),
+  heartbeatTimeoutSeconds: z.number().int().min(5).max(86400).optional(),
   status: z.enum(['online', 'warning', 'offline']).optional()
+});
+
+export const heartbeatSchema = z.object({
+  ipAddress: z.string().optional(),
+  port: z.number().int().min(1).max(65535).optional(),
+  rssi: z.number().optional(),
+  uptimeSeconds: z.number().optional()
 });
 
 export type CreateReadingInput = z.infer<typeof createReadingSchema>;
@@ -64,3 +77,4 @@ export type BatchReadingsInput = z.infer<typeof batchReadingsSchema>;
 export type QueryReadingsInput = z.infer<typeof queryReadingsSchema>;
 export type RegisterDeviceInput = z.infer<typeof registerDeviceSchema>;
 export type UpdateDeviceInput = z.infer<typeof updateDeviceSchema>;
+export type HeartbeatInput = z.infer<typeof heartbeatSchema>;

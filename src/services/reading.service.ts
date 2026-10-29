@@ -5,46 +5,53 @@ import type {
   CreateReadingInput,
   QueryReadingsInput,
   RegisterDeviceInput,
-  UpdateDeviceInput
+  UpdateDeviceInput,
+  HeartbeatInput
 } from '../schemas/reading.schema.js';
 
 export class ReadingService {
   /**
    * Save a single sensor reading and broadcast it in real time
-   * Location is tracked on the Device record in MongoDB, not inside the reading.
    */
-  static async saveReading(input: CreateReadingInput): Promise<IReading> {
+  static async saveReading(input: CreateReadingInput, callerIp?: string): Promise<IReading> {
     const reading = new Reading(input);
     const savedReading = await reading.save();
 
-    // Update Device status & latestReading without overwriting its registered location
+    const updateFields: any = {
+      lastSeen: savedReading.timestamp,
+      status: 'online',
+      latestReading: {
+        temperature: savedReading.temperature,
+        humidity: savedReading.humidity,
+        soilMoisture: savedReading.soilMoisture,
+        light: savedReading.light,
+        timestamp: savedReading.timestamp
+      }
+    };
+
+    if (callerIp) {
+      updateFields.ipAddress = callerIp;
+    }
+
     const device = await Device.findOneAndUpdate(
       { deviceId: input.deviceId },
       {
-        $set: {
-          lastSeen: savedReading.timestamp,
-          status: 'online',
-          latestReading: {
-            temperature: savedReading.temperature,
-            humidity: savedReading.humidity,
-            soilMoisture: savedReading.soilMoisture,
-            light: savedReading.light,
-            timestamp: savedReading.timestamp
-          }
-        },
+        $set: updateFields,
         $setOnInsert: {
           name: `Sensor Node ${input.deviceId.substring(0, 8)}`,
-          location: 'Unassigned Zone'
+          location: 'Unassigned Zone',
+          heartbeatTimeoutSeconds: 60,
+          port: 80
         }
       },
       { upsert: true, new: true }
     );
 
-    // Broadcast reading along with registered device location for live dashboards
     broadcast('new_reading', {
       ...savedReading.toObject(),
       deviceLocation: device.location,
-      deviceName: device.name
+      deviceName: device.name,
+      deviceStatus: 'online'
     });
 
     return savedReading;
@@ -57,7 +64,6 @@ export class ReadingService {
     const inserted = await Reading.insertMany(readingsData);
 
     if (inserted.length > 0) {
-      // Find latest reading in batch to update device registry
       const latest = inserted.reduce((prev, curr) =>
         new Date(curr.timestamp) > new Date(prev.timestamp) ? curr : prev
       );
@@ -78,7 +84,9 @@ export class ReadingService {
           },
           $setOnInsert: {
             name: `Sensor Node ${latest.deviceId.substring(0, 8)}`,
-            location: 'Unassigned Zone'
+            location: 'Unassigned Zone',
+            heartbeatTimeoutSeconds: 60,
+            port: 80
           }
         },
         { upsert: true, new: true }
@@ -137,7 +145,7 @@ export class ReadingService {
   }
 
   /**
-   * Get the single latest reading (optionally per device)
+   * Get latest reading and attach device status
    */
   static async getLatestReading(deviceId?: string) {
     const filter = deviceId ? { deviceId: deviceId.toLowerCase() } : {};
@@ -145,12 +153,15 @@ export class ReadingService {
 
     if (!reading) return null;
 
-    // Attach registered device location from Device database record
     const device = await Device.findOne({ deviceId: reading.deviceId }).lean();
+    const health = device ? this.computeHealth(device) : null;
+
     return {
       ...reading,
       deviceLocation: device?.location || 'Unassigned Zone',
-      deviceName: device?.name || `Sensor Node ${reading.deviceId.substring(0, 8)}`
+      deviceName: device?.name || `Sensor Node ${reading.deviceId.substring(0, 8)}`,
+      deviceStatus: health?.status || 'unknown',
+      isDeviceOnline: health?.isOnline ?? false
     };
   }
 
@@ -234,15 +245,21 @@ export class ReadingService {
    * Device Management: Register a device with its assigned location in database
    */
   static async registerDevice(input: RegisterDeviceInput): Promise<IDevice> {
+    const updateData: any = {
+      deviceId: input.deviceId.toLowerCase(),
+      location: input.location,
+      name: input.name || `Sensor Node ${input.deviceId.substring(0, 8)}`,
+      port: input.port || 80,
+      heartbeatTimeoutSeconds: input.heartbeatTimeoutSeconds || 60
+    };
+
+    if (input.ipAddress) {
+      updateData.ipAddress = input.ipAddress;
+    }
+
     const device = await Device.findOneAndUpdate(
       { deviceId: input.deviceId.toLowerCase() },
-      {
-        $set: {
-          deviceId: input.deviceId.toLowerCase(),
-          location: input.location,
-          name: input.name || `Sensor Node ${input.deviceId.substring(0, 8)}`
-        }
-      },
+      { $set: updateData },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
     return device;
@@ -260,16 +277,225 @@ export class ReadingService {
   }
 
   /**
-   * Device Management: Get list of all registered sensor nodes
+   * Device Management: List all registered devices with computed real-time status
    */
   static async getDevices() {
-    return Device.find().sort({ lastSeen: -1 }).lean();
+    const devices = await Device.find().sort({ lastSeen: -1 }).lean();
+    return devices.map((device) => {
+      const health = this.computeHealth(device);
+      return {
+        ...device,
+        status: health.status,
+        isOnline: health.isOnline,
+        secondsSinceLastSeen: health.secondsSinceLastSeen
+      };
+    });
   }
 
   /**
-   * Device Management: Get single device by UUID
+   * Device Management: Get single device by UUID with health
    */
   static async getDeviceById(deviceId: string) {
-    return Device.findOne({ deviceId: deviceId.toLowerCase() }).lean();
+    const device = await Device.findOne({ deviceId: deviceId.toLowerCase() }).lean();
+    if (!device) return null;
+
+    const health = this.computeHealth(device);
+    return {
+      ...device,
+      status: health.status,
+      isOnline: health.isOnline,
+      secondsSinceLastSeen: health.secondsSinceLastSeen
+    };
+  }
+
+  /**
+   * Heartbeat Ingestion: Record a ping/heartbeat sent from the ESP node
+   */
+  static async recordHeartbeat(
+    deviceId: string,
+    input: HeartbeatInput,
+    callerIp?: string
+  ): Promise<IDevice> {
+    const now = new Date();
+    const updateFields: any = {
+      lastSeen: now,
+      status: 'online'
+    };
+
+    if (input.ipAddress) {
+      updateFields.ipAddress = input.ipAddress;
+    } else if (callerIp && !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(callerIp)) {
+      updateFields.ipAddress = callerIp.replace('::ffff:', '');
+    }
+
+    if (input.port) updateFields.port = input.port;
+    if (input.rssi !== undefined) updateFields.rssi = input.rssi;
+
+    const device = await Device.findOneAndUpdate(
+      { deviceId: deviceId.toLowerCase() },
+      {
+        $set: updateFields,
+        $setOnInsert: {
+          name: `Sensor Node ${deviceId.substring(0, 8)}`,
+          location: 'Unassigned Zone',
+          heartbeatTimeoutSeconds: 60
+        }
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    broadcast('device_heartbeat', {
+      deviceId: device.deviceId,
+      name: device.name,
+      location: device.location,
+      status: 'online',
+      lastSeen: now.toISOString(),
+      ipAddress: device.ipAddress,
+      rssi: device.rssi
+    });
+
+    return device;
+  }
+
+  /**
+   * Check whether an ESP node is currently ON (alive) or OFF
+   */
+  static async getDeviceHealth(deviceId: string) {
+    const device = await Device.findOne({ deviceId: deviceId.toLowerCase() }).lean();
+    if (!device) {
+      return null;
+    }
+
+    const health = this.computeHealth(device);
+
+    return {
+      deviceId: device.deviceId,
+      name: device.name,
+      location: device.location,
+      isOnline: health.isOnline,
+      status: health.status,
+      lastSeen: device.lastSeen,
+      secondsSinceLastSeen: health.secondsSinceLastSeen,
+      timeoutThresholdSeconds: device.heartbeatTimeoutSeconds || 60,
+      ipAddress: device.ipAddress || null,
+      port: device.port || 80,
+      rssi: device.rssi || null,
+      latestReading: device.latestReading || null
+    };
+  }
+
+  /**
+   * Active Probe / Ping: Backend actively sends an HTTP GET to the ESP node's /health route
+   */
+  static async pingEspNode(deviceId: string, timeoutMs: number = 2500) {
+    const device = await Device.findOne({ deviceId: deviceId.toLowerCase() }).lean();
+    if (!device) {
+      return { found: false, error: 'Device not found in database' };
+    }
+
+    if (!device.ipAddress) {
+      return {
+        found: true,
+        isReachable: false,
+        deviceId: device.deviceId,
+        error:
+          'Device IP address is not registered. Have the ESP send a heartbeat or update its ipAddress via PUT /api/devices/:deviceId.'
+      };
+    }
+
+    const targetUrl = `http://${device.ipAddress}:${device.port || 80}/health`;
+    const startTime = Date.now();
+
+    try {
+      const response = await fetch(targetUrl, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json, text/plain, */*' },
+        signal: AbortSignal.timeout(timeoutMs)
+      });
+
+      const latencyMs = Date.now() - startTime;
+      let espResponseData: any = null;
+      try {
+        espResponseData = await response.json();
+      } catch {
+        espResponseData = await response.text();
+      }
+
+      const isOk = response.status >= 200 && response.status < 300;
+
+      if (isOk) {
+        // Mark device as currently seen and online in database
+        await Device.updateOne(
+          { deviceId: device.deviceId },
+          { $set: { lastSeen: new Date(), status: 'online' } }
+        );
+
+        broadcast('device_ping_success', {
+          deviceId: device.deviceId,
+          latencyMs,
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      return {
+        found: true,
+        isReachable: isOk,
+        status: isOk ? 'online' : 'error',
+        statusCode: response.status,
+        targetUrl,
+        latencyMs,
+        espResponse: espResponseData
+      };
+    } catch (err: any) {
+      const latencyMs = Date.now() - startTime;
+      const isTimeout = err.name === 'TimeoutError' || err.message.includes('timeout');
+
+      // Update status to offline/warning
+      await Device.updateOne(
+        { deviceId: device.deviceId },
+        { $set: { status: 'offline' } }
+      );
+
+      return {
+        found: true,
+        isReachable: false,
+        status: 'offline',
+        targetUrl,
+        latencyMs,
+        error: isTimeout
+          ? `Connection timed out after ${timeoutMs}ms. ESP is powered OFF or disconnected from WiFi.`
+          : `Connection failed: ${err.message}`
+      };
+    }
+  }
+
+  /**
+   * Helper to calculate whether a device is online/warning/offline based on lastSeen
+   */
+  private static computeHealth(device: any): {
+    isOnline: boolean;
+    status: 'online' | 'warning' | 'offline';
+    secondsSinceLastSeen: number;
+  } {
+    const lastSeenTime = device.lastSeen ? new Date(device.lastSeen).getTime() : 0;
+    const now = Date.now();
+    const secondsSinceLastSeen = Math.max(0, Math.floor((now - lastSeenTime) / 1000));
+    const timeout = device.heartbeatTimeoutSeconds || 60;
+
+    let status: 'online' | 'warning' | 'offline' = 'online';
+    let isOnline = false;
+
+    if (secondsSinceLastSeen <= timeout) {
+      status = 'online';
+      isOnline = true;
+    } else if (secondsSinceLastSeen <= timeout * 3) {
+      status = 'warning';
+      isOnline = false;
+    } else {
+      status = 'offline';
+      isOnline = false;
+    }
+
+    return { isOnline, status, secondsSinceLastSeen };
   }
 }

@@ -13,19 +13,13 @@ Monitors and processes 4 core environmental metrics:
 ## 📌 Architecture Highlights
 
 * **UUID Device Identification**: Sensor nodes are identified by a standard UUID (e.g. `123e4567-e89b-12d3-a456-426614174000`).
-* **Database-Tracked Locations**: Sensor nodes do **not** transmit location in every reading. Instead, each node's location and friendly name are registered and maintained in the `Device` collection in the database.
-* **Streamlined Telemetry Payload**: Microcontrollers send only: `deviceId` (UUID), `temperature`, `humidity`, `soilMoisture`, `light`, and optional `timestamp`.
-* **Real-time WebSockets (`/ws`)**: Instant push updates to dashboards when any sensor reading arrives.
-* **REST API**:
-  * `POST /api/devices` - Register a node UUID and assign its physical location.
-  * `PUT /api/devices/:deviceId` - Update device location, name, or status.
-  * `GET /api/devices` - List all registered devices and their database-tracked locations.
-  * `POST /api/readings` - Real-time telemetry ingestion from microcontrollers.
-  * `POST /api/readings/batch` - Batch upload for offline nodes syncing cached readings.
-  * `GET /api/readings` - Historical sensor queries with device UUID filtering, date ranges, and pagination.
-  * `GET /api/readings/latest` - Fetch the most recent reading (includes database location).
-  * `GET /api/readings/stats` - 24-hour min, max, and average statistical calculations.
-  * `GET /api/health` - System health, MongoDB connectivity, and active WebSocket client count.
+* **Database-Tracked Locations**: Physical locations are managed in the database during device registration.
+* **ESP Hardware Liveness & Health Monitoring**:
+  * **Status Query (`GET /api/devices/:deviceId/health`)**: Check if an ESP is currently **ON** (online) or **OFF** (offline) based on its last activity and timeout window.
+  * **Heartbeat (`POST /api/devices/:deviceId/heartbeat`)**: ESP can send lightweight keep-alive pings.
+  * **Direct HTTP Probe (`POST /api/devices/:deviceId/ping`)**: The backend directly contacts the ESP's onboard `/health` HTTP endpoint with a timeout to verify physical network responsiveness.
+* **Streamlined Telemetry Payload**: Microcontrollers send only: `deviceId` (UUID), `temperature`, `humidity`, `soilMoisture`, and `light`.
+* **Real-time WebSockets (`/ws`)**: Instant push updates to dashboards when any sensor reading or heartbeat arrives.
 * **Interactive Live Dashboard**: Built-in web dashboard at `http://localhost:4000/`.
 * **OpenAPI / Swagger UI Docs**: Interactive API documentation at `http://localhost:4000/docs`.
 
@@ -49,7 +43,6 @@ NODE_ENV=development
 MONGODB_URI=mongodb://localhost:27017/green_node
 CORS_ORIGIN=*
 ```
-*(If a local or remote MongoDB is not detected, the backend will automatically spin up an in-memory MongoDB instance for instant zero-setup development).*
 
 ### 3. Build & Run
 * **Development mode (with auto-restart)**:
@@ -64,37 +57,86 @@ CORS_ORIGIN=*
 
 ---
 
-## 📍 1. Device Registration (Track Location by UUID)
+## 🔌 Checking ESP Health & Liveness (Is ESP ON or OFF?)
 
-Register the device UUID in the database with its physical location:
-* **Endpoint**: `POST /api/devices`
-* **Body**:
-```json
-{
-  "deviceId": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
-  "name": "North Greenhouse Sensor",
-  "location": "Greenhouse Bay 1 - Tomatoes"
-}
-```
-* **Response (`201 Created`)**:
+### 1. Check ESP Liveness Status
+* **Endpoint**: `GET /api/devices/:deviceId/health`
+* **Response when ESP is ON**:
 ```json
 {
   "success": true,
-  "message": "Device registered successfully",
   "data": {
     "deviceId": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
-    "name": "North Greenhouse Sensor",
+    "name": "North Greenhouse Node",
     "location": "Greenhouse Bay 1 - Tomatoes",
-    "status": "online"
+    "isOnline": true,
+    "status": "online",
+    "secondsSinceLastSeen": 8,
+    "timeoutThresholdSeconds": 60,
+    "ipAddress": "192.168.1.150"
+  }
+}
+```
+* **Response when ESP is OFF**:
+```json
+{
+  "success": true,
+  "data": {
+    "deviceId": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+    "name": "North Greenhouse Node",
+    "location": "Greenhouse Bay 1 - Tomatoes",
+    "isOnline": false,
+    "status": "offline",
+    "secondsSinceLastSeen": 342,
+    "timeoutThresholdSeconds": 60,
+    "ipAddress": "192.168.1.150"
   }
 }
 ```
 
 ---
 
-## 📡 2. Ingest Sensor Readings
+### 2. Active Direct HTTP Probe to ESP
+The backend actively sends an HTTP `GET` to `http://<esp-ip>:80/health`:
+* **Endpoint**: `POST /api/devices/:deviceId/ping` (or `GET /api/devices/:deviceId/ping`)
+* **Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "found": true,
+    "isReachable": true,
+    "status": "online",
+    "statusCode": 200,
+    "targetUrl": "http://192.168.1.150:80/health",
+    "latencyMs": 24,
+    "espResponse": {
+      "status": "ok",
+      "uptime": 145020,
+      "freeHeap": 184200
+    }
+  }
+}
+```
 
-The sensor node posts only its UUID and the 4 sensor readings:
+---
+
+### 3. Heartbeat Route (ESP to Backend)
+ESP can ping this route every 10–30 seconds:
+* **Endpoint**: `POST /api/devices/:deviceId/heartbeat`
+* **Body** *(Optional IP & WiFi signal strength)*:
+```json
+{
+  "rssi": -58,
+  "uptimeSeconds": 1450
+}
+```
+
+---
+
+## 📡 Sensor Ingestion & Queries
+
+### Ingest Sensor Reading
 * **Endpoint**: `POST /api/readings`
 * **Body**:
 ```json
@@ -106,82 +148,24 @@ The sensor node posts only its UUID and the 4 sensor readings:
   "light": 620
 }
 ```
-* **Response (`201 Created`)**:
-```json
-{
-  "success": true,
-  "message": "Sensor reading recorded successfully",
-  "data": {
-    "_id": "6ae2dc4ef72478f80c7e0ed1",
-    "deviceId": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
-    "temperature": 25.2,
-    "humidity": 64.5,
-    "soilMoisture": 48.0,
-    "light": 620,
-    "timestamp": "2026-10-29T05:40:30.772Z"
-  }
-}
-```
 
----
+### Query Latest Reading
+* **Endpoint**: `GET /api/readings/latest`
 
-## 🔍 3. Query Latest Reading
-
-* **Endpoint**: `GET /api/readings/latest?deviceId=a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11`
-* **Response**:
-```json
-{
-  "success": true,
-  "data": {
-    "_id": "6ae2dc4ef72478f80c7e0ed1",
-    "deviceId": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
-    "temperature": 25.2,
-    "humidity": 64.5,
-    "soilMoisture": 48.0,
-    "light": 620,
-    "timestamp": "2026-10-29T05:40:30.772Z",
-    "deviceLocation": "Greenhouse Bay 1 - Tomatoes",
-    "deviceName": "North Greenhouse Sensor"
-  }
-}
-```
-
----
-
-## 📊 4. 24-Hour Statistical Summary
-
+### 24-Hour Statistics
 * **Endpoint**: `GET /api/readings/stats?hours=24`
-* **Response**:
-```json
-{
-  "success": true,
-  "data": {
-    "timeframeHours": 24,
-    "totalReadings": 1280,
-    "temperature": { "avg": 24.1, "min": 18.5, "max": 29.2, "unit": "°C" },
-    "humidity": { "avg": 63.4, "min": 52.0, "max": 76.1, "unit": "%" },
-    "soilMoisture": { "avg": 45.8, "min": 32.0, "max": 60.5, "unit": "%" },
-    "light": { "avg": 580.0, "min": 0, "max": 1100, "unit": "Lux" }
-  }
-}
-```
 
 ---
 
-## 🤖 Running the IoT Simulator
+## 🤖 Microcontroller Code Example (ESP32 with Health Server)
 
-To test the backend and live WebSocket stream:
-```bash
-npm run simulate
-```
-This registers two device UUIDs in the database with their respective locations and streams fluctuating sensor readings every 3 seconds.
-
----
-
-## 🔌 Microcontroller Code Example (ESP32 / Arduino C++)
+This sketch:
+1. Runs an onboard **HTTP WebServer** on port 80 serving `GET /health` so the backend can probe it.
+2. Periodically sends the 4 sensor readings to `POST /api/readings`.
 
 ```cpp
 #include <WiFi.h>
+#include <WebServer.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 
@@ -189,8 +173,26 @@ const char* ssid = "YOUR_WIFI_SSID";
 const char* password = "YOUR_WIFI_PASSWORD";
 const char* serverUrl = "http://192.168.1.100:4000/api/readings";
 
-// Standard UUID assigned to this physical device
 const char* DEVICE_UUID = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
+
+// Onboard HTTP Server on port 80 for backend health probing
+WebServer healthServer(80);
+
+unsigned long lastSendTime = 0;
+const unsigned long sendInterval = 5000; // Send telemetry every 5 seconds
+
+// Handle GET /health when backend pings the ESP
+void handleHealthRoute() {
+  StaticJsonDocument<128> doc;
+  doc["status"] = "ok";
+  doc["uptimeMs"] = millis();
+  doc["freeHeap"] = ESP.getFreeHeap();
+  doc["wifiRssi"] = WiFi.RSSI();
+
+  String response;
+  serializeJson(doc, response);
+  healthServer.send(200, "application/json", response);
+}
 
 void setup() {
   Serial.begin(115200);
@@ -199,36 +201,49 @@ void setup() {
     delay(500);
     Serial.print(".");
   }
+
   Serial.println("\nWiFi Connected!");
+  Serial.print("ESP IP Address: ");
+  Serial.println(WiFi.localIP());
+
+  // Setup /health route
+  healthServer.on("/health", handleHealthRoute);
+  healthServer.begin();
+  Serial.println("Health HTTP server started on port 80");
 }
 
 void loop() {
-  if (WiFi.status() == WL_CONNECTED) {
-    HTTPClient http;
-    http.begin(serverUrl);
-    http.addHeader("Content-Type", "application/json");
+  // Handle incoming HTTP health requests from backend
+  healthServer.handleClient();
 
-    // Read your analog/digital sensors:
-    float temperature = 24.8;     // e.g. dht.readTemperature()
-    float humidity = 63.5;        // e.g. dht.readHumidity()
-    float soilMoisture = 48.0;    // capacitive soil moisture analog reading
-    float light = 650.0;          // BH1750 or LDR sensor reading
+  // Send periodic sensor telemetry
+  if (millis() - lastSendTime >= sendInterval) {
+    lastSendTime = millis();
 
-    StaticJsonDocument<256> doc;
-    doc["deviceId"] = DEVICE_UUID;
-    doc["temperature"] = temperature;
-    doc["humidity"] = humidity;
-    doc["soilMoisture"] = soilMoisture;
-    doc["light"] = light;
+    if (WiFi.status() == WL_CONNECTED) {
+      HTTPClient http;
+      http.begin(serverUrl);
+      http.addHeader("Content-Type", "application/json");
 
-    String requestBody;
-    serializeJson(doc, requestBody);
+      // Replace with your real analog/digital sensor readings:
+      float temp = 24.5;
+      float hum = 63.0;
+      float soil = 46.5;
+      float light = 580.0;
 
-    int httpResponseCode = http.POST(requestBody);
-    Serial.printf("POST Response: %d\n", httpResponseCode);
-    http.end();
+      StaticJsonDocument<256> doc;
+      doc["deviceId"] = DEVICE_UUID;
+      doc["temperature"] = temp;
+      doc["humidity"] = hum;
+      doc["soilMoisture"] = soil;
+      doc["light"] = light;
+
+      String jsonBody;
+      serializeJson(doc, jsonBody);
+
+      int httpResponseCode = http.POST(jsonBody);
+      http.end();
+    }
   }
-
-  delay(5000); // Sample & send every 5 seconds
 }
 ```

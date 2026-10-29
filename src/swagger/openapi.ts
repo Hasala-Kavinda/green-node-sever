@@ -2,7 +2,7 @@ export const swaggerDocument = {
   openapi: '3.0.0',
   info: {
     title: 'Green Node IoT Sensor Backend API',
-    version: '1.1.0',
+    version: '1.2.0',
     description: `
 REST & WebSocket API for greenhouse, plant monitoring, and smart agriculture IoT sensor nodes.
 Collects and serves:
@@ -10,6 +10,7 @@ Collects and serves:
 * **Temperature** (°C)
 * **Soil Moisture** (% volumetric / calibrated)
 * **Light Sensor** (Lux / ambient intensity)
+* **ESP Liveness & Health**: Check if ESP is ON/OFF, receive heartbeats, or actively probe ESP via HTTP ping.
 * Devices are tracked by standard **UUID**. Physical **location** is managed on device registration.
 * Real-time WebSocket streaming at \`ws://<host>:<port>/ws\`
     `
@@ -22,8 +23,8 @@ Collects and serves:
   ],
   tags: [
     { name: 'Readings', description: 'Sensor data ingestion and queries' },
-    { name: 'Devices', description: 'Sensor nodes registration and location management' },
-    { name: 'Health', description: 'System health and connection status' }
+    { name: 'Devices & Health', description: 'Sensor nodes registration, health checking, heartbeats, and active ping' },
+    { name: 'System', description: 'Backend service health' }
   ],
   paths: {
     '/api/readings': {
@@ -139,7 +140,6 @@ Collects and serves:
       post: {
         tags: ['Readings'],
         summary: 'Batch ingest sensor readings',
-        description: 'Upload an array of readings from edge nodes.',
         requestBody: {
           required: true,
           content: {
@@ -168,7 +168,6 @@ Collects and serves:
       get: {
         tags: ['Readings'],
         summary: 'Get most recent sensor reading',
-        description: 'Returns the latest single reading, including the registered device location from the database.',
         parameters: [
           {
             name: 'deviceId',
@@ -181,9 +180,6 @@ Collects and serves:
         responses: {
           200: {
             description: 'Latest sensor reading'
-          },
-          404: {
-            description: 'No reading found'
           }
         }
       }
@@ -192,7 +188,6 @@ Collects and serves:
       get: {
         tags: ['Readings'],
         summary: 'Get aggregated sensor statistics',
-        description: 'Calculates min, max, and average values for humidity, temperature, soil moisture, and light over a given timeframe (default: past 24 hours).',
         parameters: [
           {
             name: 'hours',
@@ -218,9 +213,8 @@ Collects and serves:
     },
     '/api/devices': {
       post: {
-        tags: ['Devices'],
-        summary: 'Register a device and assign its location',
-        description: 'Register a sensor node UUID in the database with a human-readable name and its physical installation location.',
+        tags: ['Devices & Health'],
+        summary: 'Register a device and assign its location & IP',
         requestBody: {
           required: true,
           content: {
@@ -229,9 +223,11 @@ Collects and serves:
                 type: 'object',
                 required: ['deviceId', 'location'],
                 properties: {
-                  deviceId: { type: 'string', format: 'uuid', example: 'f47ac10b-58cc-4372-a567-0e02b2c3d479' },
+                  deviceId: { type: 'string', format: 'uuid', example: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11' },
                   name: { type: 'string', example: 'Bay 1 Tomato Sensor' },
-                  location: { type: 'string', example: 'Greenhouse North - Tray 4' }
+                  location: { type: 'string', example: 'Greenhouse North - Tray 4' },
+                  ipAddress: { type: 'string', example: '192.168.1.150' },
+                  port: { type: 'integer', example: 80 }
                 }
               }
             }
@@ -244,20 +240,20 @@ Collects and serves:
         }
       },
       get: {
-        tags: ['Devices'],
-        summary: 'List all registered devices',
-        description: 'Returns all detected or registered sensor nodes, their assigned locations, last seen timestamps, and status.',
+        tags: ['Devices & Health'],
+        summary: 'List all registered devices with online/offline status',
         responses: {
           200: {
-            description: 'List of devices'
+            description: 'List of devices with live status'
           }
         }
       }
     },
-    '/api/devices/{deviceId}': {
+    '/api/devices/{deviceId}/health': {
       get: {
-        tags: ['Devices'],
-        summary: 'Get device details by UUID',
+        tags: ['Devices & Health'],
+        summary: 'Check if an ESP is ON or OFF',
+        description: 'Checks whether the ESP is alive and online based on recent heartbeats/readings. Returns isOnline (boolean), secondsSinceLastSeen, status, and IP address.',
         parameters: [
           {
             name: 'deviceId',
@@ -267,13 +263,20 @@ Collects and serves:
           }
         ],
         responses: {
-          200: { description: 'Device found' },
-          404: { description: 'Device not found' }
+          200: {
+            description: 'ESP health report'
+          },
+          404: {
+            description: 'Device not found'
+          }
         }
-      },
-      put: {
-        tags: ['Devices'],
-        summary: 'Update device location or metadata',
+      }
+    },
+    '/api/devices/{deviceId}/heartbeat': {
+      post: {
+        tags: ['Devices & Health'],
+        summary: 'Send heartbeat ping from ESP node',
+        description: 'ESP microcontrollers call this endpoint periodically to signal they are powered ON and connected to WiFi.',
         parameters: [
           {
             name: 'deviceId',
@@ -283,30 +286,73 @@ Collects and serves:
           }
         ],
         requestBody: {
-          required: true,
+          required: false,
           content: {
             'application/json': {
               schema: {
                 type: 'object',
                 properties: {
-                  name: { type: 'string' },
-                  location: { type: 'string' },
-                  status: { type: 'string', enum: ['online', 'warning', 'offline'] }
+                  ipAddress: { type: 'string', example: '192.168.1.150' },
+                  port: { type: 'integer', example: 80 },
+                  rssi: { type: 'number', example: -62 }
                 }
               }
             }
           }
         },
         responses: {
-          200: { description: 'Device updated' },
-          404: { description: 'Device not found' }
+          200: {
+            description: 'Heartbeat acknowledged'
+          }
+        }
+      }
+    },
+    '/api/devices/{deviceId}/ping': {
+      post: {
+        tags: ['Devices & Health'],
+        summary: 'Actively probe the ESP onboard HTTP health route',
+        description: 'The backend actively sends an HTTP GET request directly to the ESP at http://<ipAddress>:<port>/health with a timeout to verify if it is physically responsive right now.',
+        parameters: [
+          {
+            name: 'deviceId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' }
+          },
+          {
+            name: 'timeout',
+            in: 'query',
+            description: 'Timeout in milliseconds (default: 2500)',
+            required: false,
+            schema: { type: 'integer', default: 2500 }
+          }
+        ],
+        responses: {
+          200: {
+            description: 'ESP reached successfully or unreachable result'
+          }
+        }
+      },
+      get: {
+        tags: ['Devices & Health'],
+        summary: 'Actively probe the ESP (convenience GET)',
+        parameters: [
+          {
+            name: 'deviceId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' }
+          }
+        ],
+        responses: {
+          200: { description: 'Probe result' }
         }
       }
     },
     '/api/health': {
       get: {
-        tags: ['Health'],
-        summary: 'System health check',
+        tags: ['System'],
+        summary: 'Backend server health check',
         responses: {
           200: { description: 'System healthy' }
         }
@@ -319,20 +365,20 @@ Collects and serves:
         type: 'object',
         required: ['deviceId', 'temperature', 'humidity', 'soilMoisture', 'light'],
         properties: {
-          deviceId: { type: 'string', format: 'uuid', example: 'f47ac10b-58cc-4372-a567-0e02b2c3d479' },
+          deviceId: { type: 'string', format: 'uuid', example: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11' },
           temperature: { type: 'number', example: 24.5, description: 'Temperature in Celsius (-50 to 100)' },
           humidity: { type: 'number', example: 65.0, description: 'Relative humidity % (0 to 100)' },
           soilMoisture: { type: 'number', example: 45.2, description: 'Soil moisture % (0 to 100)' },
           light: { type: 'number', example: 680, description: 'Ambient light in Lux (>= 0)' },
           metadata: { type: 'object', additionalProperties: true },
-          timestamp: { type: 'string', format: 'date-time', description: 'Optional ISO timestamp. Defaults to now.' }
+          timestamp: { type: 'string', format: 'date-time' }
         }
       },
       Reading: {
         type: 'object',
         properties: {
           _id: { type: 'string', example: '6720bb1c080b08e2f89c92a1' },
-          deviceId: { type: 'string', format: 'uuid', example: 'f47ac10b-58cc-4372-a567-0e02b2c3d479' },
+          deviceId: { type: 'string', format: 'uuid', example: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11' },
           temperature: { type: 'number', example: 24.5 },
           humidity: { type: 'number', example: 65.0 },
           soilMoisture: { type: 'number', example: 45.2 },

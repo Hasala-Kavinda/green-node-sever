@@ -5,7 +5,8 @@ import {
   batchReadingsSchema,
   queryReadingsSchema,
   registerDeviceSchema,
-  updateDeviceSchema
+  updateDeviceSchema,
+  heartbeatSchema
 } from '../schemas/reading.schema.js';
 
 export class ReadingController {
@@ -15,7 +16,8 @@ export class ReadingController {
   static async createReading(req: Request, res: Response): Promise<void> {
     try {
       const validatedData = createReadingSchema.parse(req.body);
-      const reading = await ReadingService.saveReading(validatedData);
+      const clientIp = (req.headers['x-forwarded-for'] as string) || req.ip;
+      const reading = await ReadingService.saveReading(validatedData, clientIp);
 
       res.status(201).json({
         success: true,
@@ -146,7 +148,7 @@ export class ReadingController {
   }
 
   /**
-   * POST /api/devices (Register a device with UUID and location)
+   * POST /api/devices (Register a device with UUID, location, and optional IP)
    */
   static async registerDevice(req: Request, res: Response): Promise<void> {
     try {
@@ -175,7 +177,7 @@ export class ReadingController {
   }
 
   /**
-   * PUT /api/devices/:deviceId (Update location, name, or status)
+   * PUT /api/devices/:deviceId (Update location, name, IP, or status)
    */
   static async updateDevice(req: Request, res: Response): Promise<void> {
     try {
@@ -249,6 +251,104 @@ export class ReadingController {
       res.json({
         success: true,
         data: device
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        error: error.message || 'Internal Server Error'
+      });
+    }
+  }
+
+  /**
+   * POST /api/devices/:deviceId/heartbeat
+   * Called by ESP periodically to keep status 'online'
+   */
+  static async recordHeartbeat(req: Request, res: Response): Promise<void> {
+    try {
+      const deviceId = Array.isArray(req.params.deviceId) ? req.params.deviceId[0] : req.params.deviceId;
+      const validatedData = heartbeatSchema.parse(req.body || {});
+      const clientIp = (req.headers['x-forwarded-for'] as string) || req.ip;
+
+      const device = await ReadingService.recordHeartbeat(deviceId, validatedData, clientIp);
+
+      res.json({
+        success: true,
+        message: 'Heartbeat acknowledged. Device marked online.',
+        data: {
+          deviceId: device.deviceId,
+          status: 'online',
+          lastSeen: device.lastSeen,
+          ipAddress: device.ipAddress
+        }
+      });
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        res.status(400).json({
+          success: false,
+          error: 'Heartbeat validation failed',
+          details: error.errors
+        });
+        return;
+      }
+      res.status(500).json({
+        success: false,
+        error: error.message || 'Internal Server Error'
+      });
+    }
+  }
+
+  /**
+   * GET /api/devices/:deviceId/health
+   * Checks whether the ESP is ON or OFF based on heartbeat/reading activity
+   */
+  static async getDeviceHealth(req: Request, res: Response): Promise<void> {
+    try {
+      const deviceId = Array.isArray(req.params.deviceId) ? req.params.deviceId[0] : req.params.deviceId;
+      const health = await ReadingService.getDeviceHealth(deviceId);
+
+      if (!health) {
+        res.status(404).json({
+          success: false,
+          error: 'Device not found'
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        data: health
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        error: error.message || 'Internal Server Error'
+      });
+    }
+  }
+
+  /**
+   * POST /api/devices/:deviceId/ping
+   * Actively sends an HTTP probe to the ESP's onboard /health route to verify if it is ON
+   */
+  static async pingDevice(req: Request, res: Response): Promise<void> {
+    try {
+      const deviceId = Array.isArray(req.params.deviceId) ? req.params.deviceId[0] : req.params.deviceId;
+      const timeoutMs = req.query.timeout ? parseInt(req.query.timeout as string, 10) : 2500;
+
+      const result = await ReadingService.pingEspNode(deviceId, timeoutMs);
+
+      if (!result.found) {
+        res.status(404).json({
+          success: false,
+          error: result.error
+        });
+        return;
+      }
+
+      res.json({
+        success: result.isReachable,
+        data: result
       });
     } catch (error: any) {
       res.status(500).json({
