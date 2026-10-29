@@ -24,4 +24,7 @@ router.get('/devices/:deviceId/health', ReadingController.getDeviceHealth);     
 router.get('/devices/:deviceId/ping', ReadingController.pingDevice);           // Active HTTP probe to ESP
 router.post('/devices/:deviceId/ping', ReadingController.pingDevice);          // Active HTTP probe to ESP
 
+// Database Reset & Initialize First Node
+router.post('/reset', ReadingController.resetDatabase);
+
 export default router;

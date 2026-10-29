@@ -501,4 +501,42 @@ export class ReadingService {
 
     return { isOnline, status, secondsSinceLastSeen };
   }
+
+  /**
+   * Reset the entire database (wipe all readings & devices) and install the first node
+   */
+  static async resetDatabase(firstNode?: {
+    deviceId?: string;
+    name?: string;
+    location?: string;
+    ipAddress?: string;
+  }) {
+    await Reading.deleteMany({});
+    await Device.deleteMany({});
+
+    const initialId = firstNode?.deviceId?.toLowerCase() || 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+    const initialName = firstNode?.name || 'ESP32 Sensor Node 01';
+    const initialLocation = firstNode?.location || 'Greenhouse Bay 1 - Tomatoes';
+
+    const firstDevice = await Device.create({
+      deviceId: initialId,
+      name: initialName,
+      location: initialLocation,
+      ipAddress: firstNode?.ipAddress,
+      port: 80,
+      heartbeatTimeoutSeconds: 60,
+      status: 'online',
+      lastSeen: new Date()
+    });
+
+    broadcast('database_reset', {
+      message: 'Database reset successfully',
+      firstDevice
+    });
+
+    return {
+      message: 'Database reset successfully. All previous readings and devices cleared.',
+      firstDevice
+    };
+  }
 }

@@ -357,4 +357,23 @@ export class ReadingController {
       });
     }
   }
+
+  /**
+   * POST /api/reset
+   * Wipes database collections and installs the first device node
+   */
+  static async resetDatabase(req: Request, res: Response): Promise<void> {
+    try {
+      const result = await ReadingService.resetDatabase(req.body);
+      res.json({
+        success: true,
+        ...result
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        error: error.message || 'Internal Server Error'
+      });
+    }
+  }
 }

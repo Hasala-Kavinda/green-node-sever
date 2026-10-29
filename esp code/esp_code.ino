@@ -9,8 +9,8 @@
 // =========================================================================
 
 // ---------- 1. WiFi Configuration ----------
-const char* WIFI_SSID     = "YOUR_WIFI_SSID";       // <-- Replace with your WiFi SSID
-const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";   // <-- Replace with your WiFi Password
+const char* WIFI_SSID     = "Malith's A55";       // <-- Replace with your WiFi SSID
+const char* WIFI_PASSWORD = "malith26";   // <-- Replace with your WiFi Password
 
 // ---------- 2. Backend Server Configuration ----------
 // Replace with your PC/server LAN IP address (Port is 4000)

@@ -58,6 +58,12 @@
           <span>Docs</span>
         </a>
 
+        <!-- Reset DB Button -->
+        <button onclick="confirmResetDb()" class="px-2.5 py-1.5 bg-slate-800/80 hover:bg-rose-950/40 text-slate-400 hover:text-rose-300 rounded-lg text-xs font-medium border border-slate-700/80 hover:border-rose-700/40 transition flex items-center space-x-1" title="Reset database and install initial node">
+          <i class="fa-solid fa-trash-can"></i>
+          <span>Reset DB</span>
+        </button>
+
         <!-- WS Badge -->
         <div id="wsBadge" class="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
           <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
@@ -558,6 +564,30 @@
     function completeRegistration() {
       closeRegisterModal();
       onDeviceSelectChange(activeDeviceId);
+    }
+
+    async function confirmResetDb() {
+      if (!confirm("Are you sure you want to reset the database? This will clear all historical readings and reinstall the initial ESP node.")) return;
+      try {
+        const res = await fetch('/api/reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        });
+        const json = await res.json();
+        if (res.ok && json.success) {
+          alert("✅ " + json.message);
+          activeDeviceId = json.firstDevice.deviceId;
+          await loadDevicesList();
+          clearTable();
+          fetchInitial();
+          checkEspHealth();
+        } else {
+          alert("Reset failed: " + (json.error || "Unknown error"));
+        }
+      } catch (e) {
+        alert("Error resetting database: " + e.message);
+      }
     }
 
     // --- Device Selector & Loading ---
