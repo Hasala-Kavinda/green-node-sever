@@ -163,7 +163,7 @@ The firmware is specifically tailored for the **ESP32-C3 Super Mini** in [`esp c
 * **DHT22** (Temp/Humidity) $\rightarrow$ **GPIO 3**
 * **FC-28 Soil Moisture** (Analog) $\rightarrow$ **GPIO 0** (ADC1_CH0)
 * **LDR Light Sensor** (Analog) $\rightarrow$ **GPIO 1** (ADC1_CH1)
-* **Onboard Status LED** $\rightarrow$ **GPIO 8** (Active LOW)
+* **Onboard Status LED** $\rightarrow$ **GPIO 8** (Datasheet: HIGH = ON)
 
 ```cpp
 #include <WiFi.h>
@@ -181,7 +181,7 @@ const char* DEVICE_UUID = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
 #define FC28_PIN  0       // Soil Moisture (ADC1_CH0)
 #define LDR_PIN   1       // Light Sensor (ADC1_CH1)
 #define DHTPIN    3       // DHT22 Data Pin
-#define LED_PIN   8       // Onboard Blue Status LED (Active LOW)
+#define LED_PIN   8       // Onboard Blue Status LED (Datasheet: HIGH = ON)
 
 // Onboard HTTP Server on port 80 for backend health probing
 WebServer healthServer(80);
