@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Green Node | IoT Environment & Plant Monitoring</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <style>
+    @keyframes pulse-glow {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.8; transform: scale(1.02); }
+    }
+    .live-pulse {
+      animation: pulse-glow 2s infinite ease-in-out;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans selection:bg-emerald-500 selection:text-white">
+
+  <!-- Header -->
+  <header class="border-b border-slate-800 bg-slate-900/60 backdrop-blur sticky top-0 z-50 px-6 py-4">
+    <div class="max-w-7xl mx-auto flex flex-wrap justify-between items-center gap-4">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">
+          <i class="fa-solid fa-leaf text-lg"></i>
+        </div>
+        <div>
+          <h1 class="text-xl font-bold tracking-tight bg-gradient-to-r from-emerald-400 to-teal-200 bg-clip-text text-transparent">
+            Green Node
+          </h1>
+          <p class="text-xs text-slate-400">Environment & Soil Telemetry Hub</p>
+        </div>
+      </div>
+
+      <div class="flex items-center space-x-3">
+        <!-- Connection Badge -->
+        <div id="wsBadge" class="flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
+          <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+          <span id="wsStatusText">Connecting...</span>
+        </div>
+
+        <button onclick="sendSampleReading()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shadow-md shadow-emerald-600/30 transition flex items-center space-x-1.5">
+          <i class="fa-solid fa-paper-plane"></i>
+          <span>Send Test Reading</span>
+        </button>
+
+        <a href="/docs" target="_blank" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold border border-slate-700 transition flex items-center space-x-1.5">
+          <i class="fa-solid fa-book-open"></i>
+          <span>Swagger Docs</span>
+        </a>
+
+        <a href="/api/health" target="_blank" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold border border-slate-700 transition flex items-center space-x-1.5">
+          <i class="fa-solid fa-heart-pulse"></i>
+          <span>Health</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="max-w-7xl mx-auto w-full px-6 py-8 flex-1 space-y-8">
+    
+    <!-- Status / Info Bar -->
+    <div class="flex flex-wrap items-center justify-between gap-4 p-4 rounded-2xl bg-slate-900/50 border border-slate-800 text-sm">
+      <div class="flex items-center space-x-3">
+        <span class="text-slate-400">Active Node:</span>
+        <span id="currentDevice" class="font-mono px-2.5 py-1 rounded-md bg-slate-800 text-emerald-400 font-semibold border border-slate-700">
+          Waiting for data...
+        </span>
+        <span id="currentLocation" class="text-slate-400 text-xs italic"></span>
+      </div>
+      <div class="flex items-center space-x-6 text-slate-400 text-xs">
+        <div>
+          <span>Battery: </span>
+          <span id="currentBattery" class="font-medium text-slate-200">--%</span>
+        </div>
+        <div>
+          <span>Last Updated: </span>
+          <span id="lastUpdated" class="font-medium text-slate-200">Never</span>
+        </div>
+        <div>
+          <span>Total Streamed: </span>
+          <span id="readingsCount" class="font-medium text-emerald-400">0</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4 Core Sensor Cards Grid -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      
+      <!-- Temperature Card -->
+      <div class="relative overflow-hidden rounded-2xl bg-gradient-to-b from-slate-900 to-slate-950 p-6 border border-slate-800 hover:border-orange-500/40 transition group shadow-xl">
+        <div class="flex justify-between items-start">
+          <div>
+            <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Temperature</p>
+            <div class="flex items-baseline mt-2 space-x-1">
+              <span id="valTemp" class="text-4xl font-extrabold text-orange-400 group-hover:text-orange-300 transition">--</span>
+              <span class="text-xl font-bold text-slate-500">°C</span>
+            </div>
+            <p id="valTempF" class="text-xs text-slate-400 mt-1">-- °F</p>
+          </div>
+          <div class="w-12 h-12 rounded-xl bg-orange-500/10 text-orange-400 flex items-center justify-center border border-orange-500/20 text-xl shadow-inner">
+            <i class="fa-solid fa-temperature-half"></i>
+          </div>
+        </div>
+        <div class="mt-4 pt-4 border-t border-slate-800/80 flex justify-between items-center text-xs text-slate-400">
+          <span>Comfort Range: 18 - 28°C</span>
+          <span id="statusTemp" class="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-800 text-slate-400">--</span>
+        </div>
+      </div>
+
+      <!-- Humidity Card -->
+      <div class="relative overflow-hidden rounded-2xl bg-gradient-to-b from-slate-900 to-slate-950 p-6 border border-slate-800 hover:border-cyan-500/40 transition group shadow-xl">
+        <div class="flex justify-between items-start">
+          <div>
+            <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Humidity</p>
+            <div class="flex items-baseline mt-2 space-x-1">
+              <span id="valHum" class="text-4xl font-extrabold text-cyan-400 group-hover:text-cyan-300 transition">--</span>
+              <span class="text-xl font-bold text-slate-500">%</span>
+            </div>
+            <p class="text-xs text-slate-400 mt-1">Relative Air Humidity</p>
+          </div>
+          <div class="w-12 h-12 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center border border-cyan-500/20 text-xl shadow-inner">
+            <i class="fa-solid fa-droplet"></i>
+          </div>
+        </div>
+        <div class="mt-4 pt-4 border-t border-slate-800/80">
+          <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+            <div id="barHum" class="bg-cyan-500 h-full rounded-full transition-all duration-500" style="width: 0%"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Soil Moisture Card -->
+      <div class="relative overflow-hidden rounded-2xl bg-gradient-to-b from-slate-900 to-slate-950 p-6 border border-slate-800 hover:border-emerald-500/40 transition group shadow-xl">
+        <div class="flex justify-between items-start">
+          <div>
+            <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Soil Moisture</p>
+            <div class="flex items-baseline mt-2 space-x-1">
+              <span id="valSoil" class="text-4xl font-extrabold text-emerald-400 group-hover:text-emerald-300 transition">--</span>
+              <span class="text-xl font-bold text-slate-500">%</span>
+            </div>
+            <p class="text-xs text-slate-400 mt-1">Volumetric Water Content</p>
+          </div>
+          <div class="w-12 h-12 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center border border-emerald-500/20 text-xl shadow-inner">
+            <i class="fa-solid fa-seedling"></i>
+          </div>
+        </div>
+        <div class="mt-4 pt-4 border-t border-slate-800/80 flex justify-between items-center text-xs text-slate-400">
+          <span>Soil Status:</span>
+          <span id="statusSoil" class="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-800 text-slate-400">--</span>
+        </div>
+      </div>
+
+      <!-- Light Sensor Card -->
+      <div class="relative overflow-hidden rounded-2xl bg-gradient-to-b from-slate-900 to-slate-950 p-6 border border-slate-800 hover:border-amber-500/40 transition group shadow-xl">
+        <div class="flex justify-between items-start">
+          <div>
+            <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Light Sensor</p>
+            <div class="flex items-baseline mt-2 space-x-1">
+              <span id="valLight" class="text-4xl font-extrabold text-amber-400 group-hover:text-amber-300 transition">--</span>
+              <span class="text-xl font-bold text-slate-500">Lux</span>
+            </div>
+            <p id="statusLightText" class="text-xs text-slate-400 mt-1">Ambient Light</p>
+          </div>
+          <div class="w-12 h-12 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center border border-amber-500/20 text-xl shadow-inner">
+            <i class="fa-solid fa-sun"></i>
+          </div>
+        </div>
+        <div class="mt-4 pt-4 border-t border-slate-800/80">
+          <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+            <div id="barLight" class="bg-amber-400 h-full rounded-full transition-all duration-500" style="width: 0%"></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Historical Data & Live Stream -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      
+      <!-- 24-Hour Statistical Summary -->
+      <div class="rounded-2xl bg-slate-900/60 border border-slate-800 p-6 flex flex-col justify-between shadow-xl">
+        <div>
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-bold text-slate-200 flex items-center space-x-2">
+              <i class="fa-solid fa-chart-pie text-emerald-400"></i>
+              <span>24h Aggregates</span>
+            </h3>
+            <button onclick="fetchStats()" class="text-xs text-slate-400 hover:text-slate-200 transition">
+              <i class="fa-solid fa-rotate-right"></i>
+            </button>
+          </div>
+          
+          <div id="statsContainer" class="space-y-4 text-xs">
+            <div class="p-3 rounded-xl bg-slate-800/40 border border-slate-800/60">
+              <div class="flex justify-between text-slate-400 mb-1">
+                <span>Avg Temperature</span>
+                <span id="statAvgTemp" class="font-mono text-slate-200 font-bold">--</span>
+              </div>
+              <div class="flex justify-between text-[11px] text-slate-500">
+                <span>Min / Max</span>
+                <span id="statRangeTemp">-- / --</span>
+              </div>
+            </div>
+
+            <div class="p-3 rounded-xl bg-slate-800/40 border border-slate-800/60">
+              <div class="flex justify-between text-slate-400 mb-1">
+                <span>Avg Humidity</span>
+                <span id="statAvgHum" class="font-mono text-slate-200 font-bold">--</span>
+              </div>
+              <div class="flex justify-between text-[11px] text-slate-500">
+                <span>Min / Max</span>
+                <span id="statRangeHum">-- / --</span>
+              </div>
+            </div>
+
+            <div class="p-3 rounded-xl bg-slate-800/40 border border-slate-800/60">
+              <div class="flex justify-between text-slate-400 mb-1">
+                <span>Avg Soil Moisture</span>
+                <span id="statAvgSoil" class="font-mono text-slate-200 font-bold">--</span>
+              </div>
+              <div class="flex justify-between text-[11px] text-slate-500">
+                <span>Min / Max</span>
+                <span id="statRangeSoil">-- / --</span>
+              </div>
+            </div>
+
+            <div class="p-3 rounded-xl bg-slate-800/40 border border-slate-800/60">
+              <div class="flex justify-between text-slate-400 mb-1">
+                <span>Avg Ambient Light</span>
+                <span id="statAvgLight" class="font-mono text-slate-200 font-bold">--</span>
+              </div>
+              <div class="flex justify-between text-[11px] text-slate-500">
+                <span>Min / Max</span>
+                <span id="statRangeLight">-- / --</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-4 pt-4 border-t border-slate-800 text-[11px] text-slate-500 flex justify-between items-center">
+          <span>Automated 24h Window</span>
+          <span id="statTotalPoints">0 readings</span>
+        </div>
+      </div>
+
+      <!-- Live Telemetry Stream Table -->
+      <div class="lg:col-span-2 rounded-2xl bg-slate-900/60 border border-slate-800 p-6 flex flex-col shadow-xl">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center space-x-2">
+            <h3 class="font-bold text-slate-200 flex items-center space-x-2">
+              <i class="fa-solid fa-satellite-dish text-teal-400"></i>
+              <span>Live Ingestion Feed</span>
+            </h3>
+            <span class="px-2 py-0.5 rounded-full text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              Real-Time WebSocket
+            </span>
+          </div>
+          <button onclick="clearTable()" class="text-xs text-slate-400 hover:text-rose-400 transition">
+            Clear Table
+          </button>
+        </div>
+
+        <div class="overflow-x-auto flex-1">
+          <table class="w-full text-left text-xs">
+            <thead>
+              <tr class="border-b border-slate-800 text-slate-400">
+                <th class="py-2.5 px-3">Timestamp</th>
+                <th class="py-2.5 px-3">Device ID</th>
+                <th class="py-2.5 px-3">Temp (°C)</th>
+                <th class="py-2.5 px-3">Humidity (%)</th>
+                <th class="py-2.5 px-3">Soil (%)</th>
+                <th class="py-2.5 px-3">Light (Lux)</th>
+              </tr>
+            </thead>
+            <tbody id="telemetryRows" class="divide-y divide-slate-800/50 font-mono">
+              <tr id="emptyRow" class="text-slate-500 text-center">
+                <td colspan="6" class="py-8">
+                  <i class="fa-solid fa-inbox text-2xl mb-2 block"></i>
+                  Waiting for incoming telemetry packets...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-slate-800/80 bg-slate-950 py-4 px-6 text-center text-xs text-slate-500">
+    Green Node IoT System • Node.js, Express, TypeScript, Mongoose, WebSockets • 2026
+  </footer>
+
+  <!-- Script -->
+  <script>
+    let socket = null;
+    let totalPackets = 0;
+
+    // Connect WebSocket
+    function connectWS() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+      const wsBadge = document.getElementById('wsBadge');
+      const wsStatusText = document.getElementById('wsStatusText');
+
+      socket = new WebSocket(wsUrl);
+
+      socket.onopen = () => {
+        wsBadge.className = 'flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+        wsStatusText.textContent = 'Live Connected';
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload.event === 'new_reading' && payload.data) {
+            handleNewReading(payload.data);
+          } else if (payload.event === 'batch_readings' && payload.data?.latest) {
+            handleNewReading(payload.data.latest);
+          }
+        } catch (e) {
+          console.error('Error parsing WS message:', e);
+        }
+      };
+
+      socket.onclose = () => {
+        wsBadge.className = 'flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20';
+        wsStatusText.textContent = 'Disconnected - Reconnecting...';
+        setTimeout(connectWS, 3000);
+      };
+
+      socket.onerror = () => {
+        socket.close();
+      };
+    }
+
+    // Process reading
+    function handleNewReading(reading) {
+      totalPackets++;
+      document.getElementById('readingsCount').textContent = totalPackets;
+
+      // Update Device Info
+      document.getElementById('currentDevice').textContent = reading.deviceId || 'Unknown';
+      document.getElementById('currentLocation').textContent = reading.location ? `(${reading.location})` : '';
+      document.getElementById('currentBattery').textContent = reading.battery !== undefined ? `${reading.battery}%` : 'N/A';
+      document.getElementById('lastUpdated').textContent = new Date(reading.timestamp || Date.now()).toLocaleTimeString();
+
+      // Temperature
+      document.getElementById('valTemp').textContent = Number(reading.temperature).toFixed(1);
+      const tempF = (reading.temperature * 9/5 + 32).toFixed(1);
+      document.getElementById('valTempF').textContent = `${tempF} °F`;
+
+      const statusTemp = document.getElementById('statusTemp');
+      if (reading.temperature < 15) {
+        statusTemp.textContent = 'Cool';
+        statusTemp.className = 'px-2 py-0.5 rounded text-[10px] font-semibold bg-cyan-500/20 text-cyan-300';
+      } else if (reading.temperature > 32) {
+        statusTemp.textContent = 'Hot';
+        statusTemp.className = 'px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-500/20 text-rose-300';
+      } else {
+        statusTemp.textContent = 'Ideal';
+        statusTemp.className = 'px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-300';
+      }
+
+      // Humidity
+      document.getElementById('valHum').textContent = Number(reading.humidity).toFixed(1);
+      document.getElementById('barHum').style.width = `${Math.min(100, Math.max(0, reading.humidity))}%`;
+
+      // Soil Moisture
+      document.getElementById('valSoil').textContent = Number(reading.soilMoisture).toFixed(1);
+      const statusSoil = document.getElementById('statusSoil');
+      if (reading.soilMoisture < 25) {
+        statusSoil.textContent = 'Dry (Needs Water)';
+        statusSoil.className = 'px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-300';
+      } else if (reading.soilMoisture > 75) {
+        statusSoil.textContent = 'Saturated';
+        statusSoil.className = 'px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-500/20 text-blue-300';
+      } else {
+        statusSoil.textContent = 'Optimal Moisture';
+        statusSoil.className = 'px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-300';
+      }
+
+      // Light
+      document.getElementById('valLight').textContent = Math.round(reading.light);
+      const lightPct = Math.min(100, (reading.light / 1000) * 100);
+      document.getElementById('barLight').style.width = `${lightPct}%`;
+      const statusLightText = document.getElementById('statusLightText');
+      if (reading.light < 100) {
+        statusLightText.textContent = 'Night / Low Light';
+      } else if (reading.light > 800) {
+        statusLightText.textContent = 'Direct Sunlight / High';
+      } else {
+        statusLightText.textContent = 'Moderate Ambient';
+      }
+
+      // Add to table
+      addTableRow(reading);
+    }
+
+    function addTableRow(reading) {
+      const tbody = document.getElementById('telemetryRows');
+      const emptyRow = document.getElementById('emptyRow');
+      if (emptyRow) emptyRow.remove();
+
+      const tr = document.createElement('tr');
+      tr.className = 'hover:bg-slate-800/40 transition border-b border-slate-800/40 animate-pulse';
+
+      const time = new Date(reading.timestamp || Date.now()).toLocaleTimeString();
+
+      tr.innerHTML = `
+        <td class="py-2.5 px-3 text-slate-400">${time}</td>
+        <td class="py-2.5 px-3 text-emerald-400 font-bold">${reading.deviceId}</td>
+        <td class="py-2.5 px-3 text-orange-400">${Number(reading.temperature).toFixed(1)}</td>
+        <td class="py-2.5 px-3 text-cyan-400">${Number(reading.humidity).toFixed(1)}</td>
+        <td class="py-2.5 px-3 text-emerald-400">${Number(reading.soilMoisture).toFixed(1)}</td>
+        <td class="py-2.5 px-3 text-amber-400">${Math.round(reading.light)}</td>
+      `;
+
+      tbody.insertBefore(tr, tbody.firstChild);
+
+      // Keep only last 15 rows
+      while (tbody.children.length > 15) {
+        tbody.removeChild(tbody.lastChild);
+      }
+
+      setTimeout(() => {
+        tr.classList.remove('animate-pulse');
+      }, 500);
+    }
+
+    function clearTable() {
+      const tbody = document.getElementById('telemetryRows');
+      tbody.innerHTML = `
+        <tr id="emptyRow" class="text-slate-500 text-center">
+          <td colspan="6" class="py-8">
+            <i class="fa-solid fa-inbox text-2xl mb-2 block"></i>
+            Waiting for incoming telemetry packets...
+          </td>
+        </tr>
+      `;
+    }
+
+    // Fetch initial latest reading
+    async function fetchInitial() {
+      try {
+        const res = await fetch('/api/readings/latest');
+        if (res.ok) {
+          const json = await res.json();
+          if (json.data) {
+            handleNewReading(json.data);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch initial latest reading:', err);
+      }
+      fetchStats();
+    }
+
+    // Fetch stats
+    async function fetchStats() {
+      try {
+        const res = await fetch('/api/readings/stats?hours=24');
+        if (res.ok) {
+          const json = await res.json();
+          if (json.data && json.data.totalReadings > 0) {
+            const d = json.data;
+            document.getElementById('statTotalPoints').textContent = `${d.totalReadings} readings recorded`;
+            document.getElementById('statAvgTemp').textContent = `${d.temperature.avg} °C`;
+            document.getElementById('statRangeTemp').textContent = `${d.temperature.min} / ${d.temperature.max} °C`;
+
+            document.getElementById('statAvgHum').textContent = `${d.humidity.avg} %`;
+            document.getElementById('statRangeHum').textContent = `${d.humidity.min} / ${d.humidity.max} %`;
+
+            document.getElementById('statAvgSoil').textContent = `${d.soilMoisture.avg} %`;
+            document.getElementById('statRangeSoil').textContent = `${d.soilMoisture.min} / ${d.soilMoisture.max} %`;
+
+            document.getElementById('statAvgLight').textContent = `${d.light.avg} Lux`;
+            document.getElementById('statRangeLight').textContent = `${d.light.min} / ${d.light.max} Lux`;
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch stats:', err);
+      }
+    }
+
+    // Send sample reading test
+    async function sendSampleReading() {
+      const temp = +(20 + Math.random() * 10).toFixed(1);
+      const hum = +(50 + Math.random() * 25).toFixed(1);
+      const soil = +(35 + Math.random() * 30).toFixed(1);
+      const light = +(300 + Math.random() * 500).toFixed(0);
+
+      const payload = {
+        deviceId: 'node-greenhouse-01',
+        temperature: temp,
+        humidity: hum,
+        soilMoisture: soil,
+        light: light,
+        battery: 94,
+        location: 'Zone A - Tomatoes'
+      };
+
+      try {
+        const res = await fetch('/api/readings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+          console.log('Sample reading sent successfully');
+        }
+      } catch (e) {
+        alert('Failed to send test reading: ' + e.message);
+      }
+    }
+
+    // Start
+    connectWS();
+    fetchInitial();
+    setInterval(fetchStats, 60000); // refresh stats every minute
+  </script>
+</body>
+</html>

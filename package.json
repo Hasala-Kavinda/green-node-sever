@@ -1,0 +1,35 @@
+{
+  "name": "green-node-backend",
+  "version": "1.0.0",
+  "description": "IoT Backend for Greenhouse & Plant Environment Sensor Monitoring (Humidity, Temperature, Soil Moisture, Light)",
+  "type": "module",
+  "main": "dist/app.js",
+  "scripts": {
+    "dev": "tsx watch src/app.ts",
+    "build": "tsc && cp -r src/public dist/",
+    "start": "node dist/app.js",
+    "simulate": "tsx scripts/simulate_node.ts"
+  },
+  "keywords": ["iot", "sensors", "humidity", "temperature", "soil-moisture", "light", "greenhouse", "express", "mongodb"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.9",
+    "express": "^5.3.0",
+    "mongoose": "^9.11.4",
+    "swagger-ui-express": "^5.0.1",
+    "ws": "^8.22.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.6",
+    "@types/swagger-ui-express": "^4.1.8",
+    "@types/ws": "^8.18.2",
+    "mongodb-memory-server": "^11.3.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
