@@ -59,7 +59,7 @@
         </a>
 
         <!-- Reset DB Button -->
-        <button onclick="confirmResetDb()" class="px-2.5 py-1.5 bg-slate-800/80 hover:bg-rose-950/40 text-slate-400 hover:text-rose-300 rounded-lg text-xs font-medium border border-slate-700/80 hover:border-rose-700/40 transition flex items-center space-x-1" title="Reset database and install initial node">
+        <button onclick="openResetModal()" class="px-2.5 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 rounded-lg text-xs font-semibold border border-rose-500/30 transition flex items-center space-x-1.5" title="Wipe database and reinstall initial node">
           <i class="fa-solid fa-trash-can"></i>
           <span>Reset DB</span>
         </button>
@@ -334,7 +334,100 @@
 
     </div>
 
+    <!-- Auto-Saved Database Logs Section -->
+    <div class="rounded-2xl bg-slate-900/60 border border-slate-800 p-6 shadow-xl space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center space-x-3">
+          <div class="w-8 h-8 rounded-lg bg-teal-500/10 text-teal-400 flex items-center justify-center text-sm border border-teal-500/20">
+            <i class="fa-solid fa-database"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-slate-100 flex items-center space-x-2 text-sm">
+              <span>Database Event & Telemetry Logs</span>
+              <span class="px-2 py-0.5 rounded-full text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-normal">
+                Auto-Saved in MongoDB
+              </span>
+            </h3>
+            <p class="text-slate-400 text-xs">Persistent audit log of all readings, pings, and hardware events</p>
+          </div>
+        </div>
+
+        <div class="flex items-center space-x-2">
+          <!-- Refresh Logs -->
+          <button onclick="loadDatabaseLogs()" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs transition flex items-center space-x-1" title="Reload logs">
+            <i class="fa-solid fa-rotate"></i>
+            <span>Refresh</span>
+          </button>
+          <!-- Clear Logs -->
+          <button onclick="clearDatabaseLogs()" class="px-2.5 py-1.5 bg-slate-800 hover:bg-rose-950/40 text-slate-400 hover:text-rose-300 rounded-lg text-xs transition flex items-center space-x-1" title="Clear logs in database">
+            <i class="fa-solid fa-trash-can text-[11px]"></i>
+            <span>Clear Logs</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Logs Table -->
+      <div class="overflow-x-auto max-h-72 border border-slate-800/80 rounded-xl bg-slate-950/40">
+        <table class="w-full text-left text-xs font-mono">
+          <thead class="bg-slate-900/90 text-slate-400 sticky top-0 border-b border-slate-800">
+            <tr>
+              <th class="py-2.5 px-3">Timestamp</th>
+              <th class="py-2.5 px-3">Level</th>
+              <th class="py-2.5 px-3">Category</th>
+              <th class="py-2.5 px-3">Device UUID</th>
+              <th class="py-2.5 px-3">Event Message</th>
+            </tr>
+          </thead>
+          <tbody id="dbLogRows" class="divide-y divide-slate-800/40 text-xs">
+            <tr id="emptyLogPrompt" class="text-slate-500 text-center">
+              <td colspan="5" class="py-6 font-sans">
+                <i class="fa-solid fa-clock-rotate-left text-xl mb-1 block"></i>
+                No logs recorded yet. Logs auto-save on telemetry packets, heartbeats, and pings.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
   </main>
+
+  <!-- ======================================================== -->
+  <!-- MODAL: Reset Database Confirmation Modal                 -->
+  <!-- ======================================================== -->
+  <div id="resetConfirmModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+    <div class="relative w-full max-w-md rounded-2xl bg-slate-900 border border-rose-500/30 shadow-2xl p-6 space-y-5">
+      
+      <div class="flex items-start space-x-4">
+        <div class="w-12 h-12 rounded-xl bg-rose-500/10 text-rose-400 flex items-center justify-center text-2xl border border-rose-500/20 shrink-0">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+        </div>
+        <div>
+          <h2 class="text-base font-bold text-slate-100">Reset Entire Database?</h2>
+          <p class="text-xs text-slate-400 mt-1">
+            This will permanently delete all telemetry readings and logs in MongoDB, and reinstall the primary sensor node (<span class="font-mono text-emerald-400">a0eebc99...</span>).
+          </p>
+        </div>
+      </div>
+
+      <div class="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-400 space-y-1 font-mono">
+        <div>• Target: <span class="text-slate-200">MongoDB Database</span></div>
+        <div>• Initial Node: <span class="text-emerald-400">ESP32 Sensor Node 01</span></div>
+        <div>• Assigned Location: <span class="text-teal-300">Greenhouse Bay 1 - Tomatoes</span></div>
+      </div>
+
+      <div class="flex justify-end space-x-3 pt-2">
+        <button type="button" onclick="closeResetModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition">
+          Cancel
+        </button>
+        <button type="button" id="executeResetBtn" onclick="executeDatabaseReset()" class="px-5 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-rose-600/30 transition flex items-center space-x-2">
+          <i class="fa-solid fa-trash-can"></i>
+          <span>Yes, Reset Database</span>
+        </button>
+      </div>
+
+    </div>
+  </div>
 
   <!-- ======================================================== -->
   <!-- MODAL: Register New ESP Node Dialog                      -->
@@ -566,27 +659,140 @@
       onDeviceSelectChange(activeDeviceId);
     }
 
-    async function confirmResetDb() {
-      if (!confirm("Are you sure you want to reset the database? This will clear all historical readings and reinstall the initial ESP node.")) return;
+    // --- Reset Database Modal & Execution ---
+    function openResetModal() {
+      document.getElementById('resetConfirmModal').classList.remove('hidden');
+    }
+
+    function closeResetModal() {
+      document.getElementById('resetConfirmModal').classList.add('hidden');
+    }
+
+    async function executeDatabaseReset() {
+      const btn = document.getElementById('executeResetBtn');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1.5"></i> Wiping Database...';
+
       try {
         const res = await fetch('/api/reset', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({})
         });
+
         const json = await res.json();
         if (res.ok && json.success) {
-          alert("✅ " + json.message);
+          closeResetModal();
+
+          // Show floating banner
+          const banner = document.getElementById('espAlertBanner');
+          const title = document.getElementById('espAlertTitle');
+          const details = document.getElementById('espAlertDetails');
+          const icon = document.getElementById('espAlertIcon');
+
+          banner.className = 'p-4 rounded-xl border bg-emerald-950/40 border-emerald-500/40 text-emerald-300 text-xs flex justify-between items-center shadow-lg';
+          title.textContent = '✅ Database Reset Successfully!';
+          details.textContent = 'All previous telemetry & logs wiped. Primary node installed: ' + json.firstDevice.deviceId;
+          icon.className = 'fa-solid fa-circle-check text-emerald-400 text-lg';
+          banner.classList.remove('hidden');
+
           activeDeviceId = json.firstDevice.deviceId;
           await loadDevicesList();
           clearTable();
           fetchInitial();
           checkEspHealth();
+          await loadDatabaseLogs();
         } else {
-          alert("Reset failed: " + (json.error || "Unknown error"));
+          alert('Database reset failed: ' + (json.error || 'Server error'));
+        }
+      } catch (err) {
+        alert('Network error during reset: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-trash-can mr-1.5"></i> Yes, Reset Database';
+      }
+    }
+
+    // --- Auto-Saved Database Logs Logic ---
+    async function loadDatabaseLogs() {
+      try {
+        const res = await fetch('/api/logs?limit=40');
+        if (res.ok) {
+          const json = await res.json();
+          const tbody = document.getElementById('dbLogRows');
+          tbody.innerHTML = '';
+
+          if (!json.items || json.items.length === 0) {
+            tbody.innerHTML = `
+              <tr id="emptyLogPrompt" class="text-slate-500 text-center font-sans">
+                <td colspan="5" class="py-6">
+                  <i class="fa-solid fa-clock-rotate-left text-xl mb-1 block"></i>
+                  No logs recorded yet. Logs auto-save on telemetry packets, heartbeats, and pings.
+                </td>
+              </tr>
+            `;
+            return;
+          }
+
+          json.items.forEach(log => renderLogRow(log, false));
         }
       } catch (e) {
-        alert("Error resetting database: " + e.message);
+        console.error('Failed to load database logs:', e);
+      }
+    }
+
+    async function clearDatabaseLogs() {
+      if (!confirm('Clear all logs stored in MongoDB?')) return;
+      try {
+        const res = await fetch('/api/logs', { method: 'DELETE' });
+        if (res.ok) {
+          loadDatabaseLogs();
+        }
+      } catch (e) {
+        alert('Failed to clear logs: ' + e.message);
+      }
+    }
+
+    function renderLogRow(log, prepend = true) {
+      const tbody = document.getElementById('dbLogRows');
+      const emptyPrompt = document.getElementById('emptyLogPrompt');
+      if (emptyPrompt) emptyPrompt.remove();
+
+      const tr = document.createElement('tr');
+      tr.className = 'hover:bg-slate-800/40 transition border-b border-slate-800/30';
+
+      const time = new Date(log.timestamp || Date.now()).toLocaleTimeString();
+      const shortDev = log.deviceId ? `${log.deviceId.substring(0, 8)}...` : '<span class="text-slate-600">SYSTEM</span>';
+
+      // Level badge
+      let levelBadge = '<span class="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400">INFO</span>';
+      if (log.level === 'success') {
+        levelBadge = '<span class="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">SUCCESS</span>';
+      } else if (log.level === 'warn') {
+        levelBadge = '<span class="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20">WARN</span>';
+      } else if (log.level === 'error') {
+        levelBadge = '<span class="px-1.5 py-0.5 rounded text-[10px] bg-rose-500/10 text-rose-400 border border-rose-500/20">ERROR</span>';
+      }
+
+      // Category badge
+      const cat = (log.category || 'system').toUpperCase();
+      const catColor = cat === 'TELEMETRY' ? 'text-teal-400' : (cat === 'HEALTH' ? 'text-blue-400' : (cat === 'DEVICE' ? 'text-purple-400' : 'text-slate-400'));
+
+      tr.innerHTML = `
+        <td class="py-2 px-3 text-slate-500 whitespace-nowrap">${time}</td>
+        <td class="py-2 px-3">${levelBadge}</td>
+        <td class="py-2 px-3 font-semibold ${catColor}">${cat}</td>
+        <td class="py-2 px-3 text-emerald-400 font-bold" title="${log.deviceId || ''}">${shortDev}</td>
+        <td class="py-2 px-3 text-slate-300 font-sans break-all">${log.message}</td>
+      `;
+
+      if (prepend) {
+        tbody.insertBefore(tr, tbody.firstChild);
+        while (tbody.children.length > 50) {
+          tbody.removeChild(tbody.lastChild);
+        }
+      } else {
+        tbody.appendChild(tr);
       }
     }
 
@@ -674,6 +880,8 @@
             if (payload.data.deviceId === activeDeviceId) {
               updateEspLivenessBadge(true, 'ESP: ON (Heartbeat Received)');
             }
+          } else if (payload.event === 'new_log' && payload.data) {
+            renderLogRow(payload.data, true);
           }
         } catch (e) {
           console.error('Error parsing WS message:', e);
@@ -925,6 +1133,7 @@
     loadDevicesList();
     connectWS();
     fetchInitial();
+    loadDatabaseLogs();
     setInterval(fetchStats, 60000);
     setInterval(checkEspHealth, 30000);
   </script>

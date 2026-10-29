@@ -27,4 +27,8 @@ router.post('/devices/:deviceId/ping', ReadingController.pingDevice);          /
 // Database Reset & Initialize First Node
 router.post('/reset', ReadingController.resetDatabase);
 
+// System & Sensor Logs (Auto-saved in MongoDB)
+router.get('/logs', ReadingController.getLogs);
+router.delete('/logs', ReadingController.clearLogs);
+
 export default router;

@@ -13,8 +13,8 @@ const char* WIFI_SSID     = "Malith's A55";       // <-- Replace with your WiFi 
 const char* WIFI_PASSWORD = "malith26";   // <-- Replace with your WiFi Password
 
 // ---------- 2. Backend Server Configuration ----------
-// Replace with your PC/server LAN IP address (Port is 4000)
-const char* SERVER_URL = "http://192.168.1.42:4000/api/readings";
+// Your PC's actual LAN IP on this WiFi network is 10.88.145.39 (Port 4000)
+const char* SERVER_URL = "http://10.88.145.39:4000/api/readings";
 
 // Standard UUID registered in your database for this physical node
 const char* DEVICE_ID  = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";

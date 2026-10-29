@@ -13,6 +13,20 @@ import healthRoutes from './routes/health.routes.js';
 import { swaggerDocument } from './swagger/openapi.js';
 
 import fs from 'fs';
+import os from 'os';
+
+function getLocalIpAddresses(): string[] {
+  const nets = os.networkInterfaces();
+  const results: string[] = [];
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name] || []) {
+      if (net.family === 'IPv4' && !net.internal) {
+        results.push(net.address);
+      }
+    }
+  }
+  return results;
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -69,10 +83,16 @@ async function startServer() {
   try {
     await connectDatabase();
 
-    server.listen(config.port, () => {
+    const lanIps = getLocalIpAddresses();
+    server.listen(config.port, '0.0.0.0', () => {
       console.log(`\n======================================================`);
       console.log(`🌿 Green Node IoT Backend is running!`);
-      console.log(`🚀 HTTP Server:     http://localhost:${config.port}`);
+      console.log(`🚀 Local URL:       http://localhost:${config.port}`);
+      if (lanIps.length > 0) {
+        lanIps.forEach(ip => {
+          console.log(`📶 ESP Server URL:  http://${ip}:${config.port}/api/readings`);
+        });
+      }
       console.log(`📊 Live Dashboard:  http://localhost:${config.port}`);
       console.log(`📖 API Docs:        http://localhost:${config.port}/docs`);
       console.log(`📡 WebSocket:       ws://localhost:${config.port}/ws`);

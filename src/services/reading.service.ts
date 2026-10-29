@@ -1,6 +1,8 @@
 import { Reading, IReading } from '../models/Reading.js';
 import { Device, IDevice } from '../models/Device.js';
+import { Log } from '../models/Log.js';
 import { broadcast } from './websocket.service.js';
+import { LoggerService } from './logger.service.js';
 import type {
   CreateReadingInput,
   QueryReadingsInput,
@@ -54,6 +56,21 @@ export class ReadingService {
       deviceStatus: 'online'
     });
 
+    // Auto-save log to database
+    await LoggerService.recordLog({
+      level: 'success',
+      category: 'telemetry',
+      deviceId: savedReading.deviceId,
+      message: `Received sensor packet: Temp=${savedReading.temperature}°C, Hum=${savedReading.humidity}%, Soil=${savedReading.soilMoisture}%, Light=${savedReading.light} Lux`,
+      details: {
+        temperature: savedReading.temperature,
+        humidity: savedReading.humidity,
+        soilMoisture: savedReading.soilMoisture,
+        light: savedReading.light,
+        metadata: savedReading.metadata
+      }
+    });
+
     return savedReading;
   }
 
@@ -99,6 +116,14 @@ export class ReadingService {
           deviceLocation: device?.location,
           deviceName: device?.name
         }
+      });
+
+      await LoggerService.recordLog({
+        level: 'info',
+        category: 'telemetry',
+        deviceId: latest.deviceId,
+        message: `Batch ingested ${inserted.length} readings for node ${latest.deviceId}`,
+        details: { count: inserted.length }
       });
     }
 
@@ -262,6 +287,15 @@ export class ReadingService {
       { $set: updateData },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
+
+    await LoggerService.recordLog({
+      level: 'success',
+      category: 'device',
+      deviceId: device.deviceId,
+      message: `Node "${device.name}" registered and assigned to "${device.location}"`,
+      details: { name: device.name, location: device.location, ipAddress: device.ipAddress }
+    });
+
     return device;
   }
 
@@ -354,6 +388,14 @@ export class ReadingService {
       rssi: device.rssi
     });
 
+    await LoggerService.recordLog({
+      level: 'info',
+      category: 'health',
+      deviceId: device.deviceId,
+      message: `Heartbeat acknowledged from "${device.name}" (RSSI: ${device.rssi ? device.rssi + ' dBm' : 'N/A'})`,
+      details: { ipAddress: device.ipAddress, rssi: device.rssi }
+    });
+
     return device;
   }
 
@@ -440,6 +482,16 @@ export class ReadingService {
         });
       }
 
+      await LoggerService.recordLog({
+        level: isOk ? 'success' : 'warn',
+        category: 'health',
+        deviceId: device.deviceId,
+        message: isOk
+          ? `ESP health probe SUCCESS at ${targetUrl} (Latency: ${latencyMs}ms)`
+          : `ESP health probe returned HTTP ${response.status} at ${targetUrl}`,
+        details: { targetUrl, latencyMs, statusCode: response.status }
+      });
+
       return {
         found: true,
         isReachable: isOk,
@@ -513,6 +565,7 @@ export class ReadingService {
   }) {
     await Reading.deleteMany({});
     await Device.deleteMany({});
+    await Log.deleteMany({});
 
     const initialId = firstNode?.deviceId?.toLowerCase() || 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
     const initialName = firstNode?.name || 'ESP32 Sensor Node 01';
@@ -527,6 +580,14 @@ export class ReadingService {
       heartbeatTimeoutSeconds: 60,
       status: 'online',
       lastSeen: new Date()
+    });
+
+    await LoggerService.recordLog({
+      level: 'warn',
+      category: 'system',
+      deviceId: initialId,
+      message: `Database reset performed. Reinstalled primary node "${initialName}" (${initialId})`,
+      details: { firstDeviceId: initialId, location: initialLocation }
     });
 
     broadcast('database_reset', {

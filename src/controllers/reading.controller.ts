@@ -376,4 +376,52 @@ export class ReadingController {
       });
     }
   }
+
+  /**
+   * GET /api/logs
+   * Retrieve auto-saved system and sensor logs from database
+   */
+  static async getLogs(req: Request, res: Response): Promise<void> {
+    try {
+      const { LoggerService } = await import('../services/logger.service.js');
+      const query = {
+        deviceId: req.query.deviceId as string | undefined,
+        level: req.query.level as string | undefined,
+        category: req.query.category as string | undefined,
+        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 50,
+        page: req.query.page ? parseInt(req.query.page as string, 10) : 1
+      };
+      const result = await LoggerService.getLogs(query);
+      res.json({
+        success: true,
+        ...result
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        error: error.message || 'Internal Server Error'
+      });
+    }
+  }
+
+  /**
+   * DELETE /api/logs
+   * Clear all logs from database
+   */
+  static async clearLogs(_req: Request, res: Response): Promise<void> {
+    try {
+      const { LoggerService } = await import('../services/logger.service.js');
+      const result = await LoggerService.clearLogs();
+      res.json({
+        success: true,
+        message: 'Logs cleared successfully',
+        ...result
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        error: error.message || 'Internal Server Error'
+      });
+    }
+  }
 }
