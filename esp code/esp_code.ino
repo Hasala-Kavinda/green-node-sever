@@ -4,47 +4,57 @@
 #include "DHT.h"
 
 // =========================================================================
-//  🌿 Green Node - ESP32 Sensor Telemetry & Health Probe Firmware
+//  🌿 Green Node - ESP32-C3 Super Mini Telemetry & Health Probe Firmware
+//  Microcontroller: ESP32-C3 Super Mini (RISC-V)
 //  Sensors: DHT22 (Temp & Humidity), FC-28 (Soil Moisture), LDR (Light)
 // =========================================================================
 
 // ---------- 1. WiFi Configuration ----------
-const char* WIFI_SSID     = "Malith's A55";       // <-- Replace with your WiFi SSID
-const char* WIFI_PASSWORD = "malith26";   // <-- Replace with your WiFi Password
+const char* WIFI_SSID     = "Malith's A55";       // <-- Your WiFi SSID
+const char* WIFI_PASSWORD = "malith26";           // <-- Your WiFi Password
 
 // ---------- 2. Backend Server Configuration ----------
-// Your PC's actual LAN IP on this WiFi network is 10.88.145.39 (Port 4000)
+// Your PC's LAN IP on this WiFi network (Port 4000)
 const char* SERVER_URL = "http://10.88.145.39:4000/api/readings";
 
-// Standard UUID registered in your database for this physical node
+// Standard UUID registered in MongoDB database for this physical node
 const char* DEVICE_ID  = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
 
-// Telemetry interval in milliseconds (e.g. 10000 = 10 seconds)
+// Telemetry send interval (10000 = 10 seconds)
 const unsigned long SEND_INTERVAL_MS = 10000;
 
-// ---------- 3. Sensor Pins & Types ----------
-#define DHTPIN    4       // DHT22 Data Pin (GPIO 4)
+// ---------- 3. ESP32-C3 Super Mini Pin Definitions ----------
+// NOTE: Classic ESP32 pins 34 & 35 do NOT exist on ESP32-C3.
+// ESP32-C3 requires ADC1 pins (GPIO 0-4) while WiFi is running.
+#define FC28_PIN  0       // Soil Moisture Analog In (GPIO 0 - ADC1_CH0)
+#define LDR_PIN   1       // Light Sensor Analog In  (GPIO 1 - ADC1_CH1)
+#define DHTPIN    3       // DHT22 Digital Data Pin  (GPIO 3)
 #define DHTTYPE   DHT22   // AM2302 / DHT22
-#define FC28_PIN  34      // Soil Moisture Analog Pin (GPIO 34 - ADC1)
-#define LDR_PIN   35      // Light Sensor / LDR Analog Pin (GPIO 35 - ADC1)
+#define LED_PIN   8       // Onboard Blue Status LED on C3 SuperMini (Active LOW)
 
 DHT dht(DHTPIN, DHTTYPE);
 
-// Soil moisture ADC calibration (adjust according to your soil & probe)
+// Soil moisture ADC calibration (ESP32-C3 12-bit ADC: 0 - 4095)
 const int AIR_VALUE   = 4095;  // Dry sensor in air
-const int WATER_VALUE = 1500;  // Sensor submerged in water cup
+const int WATER_VALUE = 1500;  // Submerged in water
 
 // ---------- 4. Onboard Health WebServer (Port 80) ----------
-// Responds to backend liveness checks: GET http://<esp-ip>:80/health
 WebServer healthServer(80);
-
 unsigned long lastSendTime = 0;
 
-// Health route handler called when backend checks if ESP is ON
+// Helper to blink status LED
+void blinkLed(int ms = 50) {
+  digitalWrite(LED_PIN, LOW);   // ON (active low)
+  delay(ms);
+  digitalWrite(LED_PIN, HIGH);  // OFF
+}
+
+// Health route handler (backend pings GET http://<esp32-c3-ip>:80/health)
 void handleHealthRoute() {
+  blinkLed(30);
   char healthJson[256];
   snprintf(healthJson, sizeof(healthJson),
-    "{\"status\":\"ok\",\"deviceId\":\"%s\",\"uptimeMs\":%lu,\"freeHeap\":%u,\"wifiRssi\":%d}",
+    "{\"status\":\"ok\",\"chip\":\"ESP32-C3\",\"deviceId\":\"%s\",\"uptimeMs\":%lu,\"freeHeap\":%u,\"wifiRssi\":%d}",
     DEVICE_ID,
     millis(),
     ESP.getFreeHeap(),
@@ -54,9 +64,8 @@ void handleHealthRoute() {
   Serial.println("📡 [Health Probe] Responded 200 OK to backend health check.");
 }
 
-// 404 Handler for health server
 void handleNotFound() {
-  healthServer.send(404, "application/json", "{\"error\":\"Route not found. Use /health\"}");
+  healthServer.send(404, "application/json", "{\"error\":\"Not found. Use /health\"}");
 }
 
 // ---------- 5. WiFi Helper ----------
@@ -67,17 +76,20 @@ void connectWiFi() {
 
   unsigned long start = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - start < 15000) {
-    delay(500);
+    digitalWrite(LED_PIN, !digitalRead(LED_PIN)); // Toggle LED while connecting
+    delay(400);
     Serial.print(".");
   }
 
   if (WiFi.status() == WL_CONNECTED) {
+    digitalWrite(LED_PIN, HIGH); // Solid OFF when connected
     Serial.println("\n✅ WiFi connected successfully!");
-    Serial.print("📍 ESP32 IP Address: ");
+    Serial.print("📍 ESP32-C3 IP: ");
     Serial.println(WiFi.localIP());
     Serial.printf("🩺 Onboard Health Route: http://%s:80/health\n\n", WiFi.localIP().toString().c_str());
   } else {
-    Serial.println("\n❌ WiFi connection FAILED. Will retry in loop().");
+    digitalWrite(LED_PIN, LOW); // Stay ON if failed
+    Serial.println("\n❌ WiFi connection failed. Will retry in loop().");
   }
 }
 
@@ -93,8 +105,6 @@ bool postReading(float temp, float hum, float soilPct, float lightLux, int soilR
   http.addHeader("Content-Type", "application/json");
   http.setTimeout(5000);
 
-  // Build JSON payload matching the backend schema
-  // Sends: deviceId (UUID), temperature, humidity, soilMoisture, light + raw metadata
   char payload[384];
   snprintf(payload, sizeof(payload),
     "{"
@@ -103,7 +113,7 @@ bool postReading(float temp, float hum, float soilPct, float lightLux, int soilR
       "\"humidity\":%.2f,"
       "\"soilMoisture\":%.2f,"
       "\"light\":%.1f,"
-      "\"metadata\":{\"soil_raw\":%d,\"light_raw\":%d,\"rssi\":%d}"
+      "\"metadata\":{\"chip\":\"esp32-c3-supermini\",\"soil_raw\":%d,\"light_raw\":%d,\"rssi\":%d}"
     "}",
     DEVICE_ID, temp, hum, soilPct, lightLux, soilRaw, lightRaw, WiFi.RSSI()
   );
@@ -114,6 +124,7 @@ bool postReading(float temp, float hum, float soilPct, float lightLux, int soilR
   int code = http.POST((uint8_t*)payload, strlen(payload));
 
   if (code > 0) {
+    blinkLed(40); // Flash LED on successful transmission
     String body = http.getString();
     Serial.printf("📥 HTTP %d | Response: %s\n\n", code, body.c_str());
   } else {
@@ -126,11 +137,16 @@ bool postReading(float temp, float hum, float soilPct, float lightLux, int soilR
 
 // ---------- 7. Setup ----------
 void setup() {
+  // ESP32-C3 uses native USB CDC
   Serial.begin(115200);
-  delay(500);
-  Serial.println("\n=============================================");
-  Serial.println("🌿 Green Node ESP32 Telemetry & Health Probe");
-  Serial.println("=============================================");
+  delay(1000); // Give USB CDC time to initialize
+
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, HIGH); // Off initially
+
+  Serial.println("\n=================================================");
+  Serial.println("🌿 Green Node - ESP32-C3 Super Mini Telemetry");
+  Serial.println("=================================================");
 
   // Initialize Sensors
   dht.begin();
@@ -140,19 +156,19 @@ void setup() {
   // Connect to WiFi
   connectWiFi();
 
-  // Setup Onboard HTTP Health Server on port 80
+  // Start Onboard Health Server on Port 80
   healthServer.on("/health", HTTP_GET, handleHealthRoute);
   healthServer.onNotFound(handleNotFound);
   healthServer.begin();
-  Serial.println("🚀 Health WebServer started on port 80 (handles /health)");
+  Serial.println("🚀 Health WebServer running on port 80");
 }
 
 // ---------- 8. Main Loop ----------
 void loop() {
-  // Always listen for backend health probes (must be fast and non-blocking)
+  // Non-blocking health server listener
   healthServer.handleClient();
 
-  // Ensure WiFi connection is maintained
+  // Reconnect WiFi if disconnected
   if (WiFi.status() != WL_CONNECTED) {
     static unsigned long lastWifiRetry = 0;
     if (millis() - lastWifiRetry > 10000) {
@@ -161,36 +177,34 @@ void loop() {
     }
   }
 
-  // Non-blocking timed interval for sensor readings
+  // Periodic sensor telemetry
   unsigned long currentMillis = millis();
   if (currentMillis - lastSendTime >= SEND_INTERVAL_MS) {
     lastSendTime = currentMillis;
 
-    // --- 1. Read Temperature & Humidity from DHT22 ---
+    // --- 1. Read DHT22 (Temp & Humidity) ---
     float hum = dht.readHumidity();
     float tmp = dht.readTemperature();
 
     if (isnan(hum) || isnan(tmp)) {
-      Serial.println("⚠️ DHT22 read failed — check wiring on GPIO 4!");
+      Serial.println("⚠️ DHT22 read failed — verify 3.3V/GND and GPIO 3 connection.");
       return;
     }
 
-    // --- 2. Read Soil Moisture from FC-28 ---
+    // --- 2. Read Soil Moisture (FC-28 on GPIO 0) ---
     int soilRaw = analogRead(FC28_PIN);
     int soilPct = constrain(map(soilRaw, AIR_VALUE, WATER_VALUE, 0, 100), 0, 100);
 
-    // --- 3. Read Ambient Light from LDR ---
-    // (If no LDR is connected yet, lightRaw will read near 0 and lightLux will be 0)
+    // --- 3. Read Ambient Light (LDR on GPIO 1) ---
     int lightRaw = analogRead(LDR_PIN);
     float lightLux = constrain(map(lightRaw, 0, 4095, 0, 1500), 0, 1500);
 
     Serial.printf("📊 [Sensors] Temp=%.2f°C | Hum=%.2f%% | SoilRaw=%d (%.1f%%) | LightRaw=%d (%.1f Lux)\n",
                   tmp, hum, soilRaw, (float)soilPct, lightRaw, lightLux);
 
-    // --- 4. Send Telemetry to Server ---
+    // --- 4. Send to Backend ---
     postReading(tmp, hum, (float)soilPct, lightLux, soilRaw, lightRaw);
   }
 
-  // Small delay for watchdog and CPU yield
-  delay(10);
+  delay(10); // CPU yield
 }

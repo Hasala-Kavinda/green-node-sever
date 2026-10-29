@@ -1,50 +1,74 @@
-# 🌿 ESP32 Sensor & Health Probe Firmware
+# 🌿 ESP32-C3 Super Mini - Sensor & Health Probe Firmware
 
-This folder contains the complete, updated Arduino sketch for the ESP32 node.
-
-## 📌 What Was Updated & Fixed
-
-1. **Backend Integration**:
-   * Changed port to **4000** (`http://<YOUR_PC_IP>:4000/api/readings`).
-   * Updated `DEVICE_ID` to a standard UUID (`a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11`).
-   * Matched backend payload keys: `deviceId`, `temperature`, `humidity`, `soilMoisture`, `light`, and extra `metadata`.
-2. **Onboard Health Probe (`GET /health`)**:
-   * Added an embedded `WebServer` running on port 80.
-   * Responds to backend liveness queries with uptime, free RAM, and WiFi RSSI so the backend can verify whether the ESP is powered ON.
-3. **Non-Blocking Execution (Eliminated `delay(10000)`)**:
-   * The previous code used a blocking `delay(10000)`, which froze the ESP and prevented it from answering health checks during the 10-second wait.
-   * Replaced with non-blocking `millis()` timing so the ESP can immediately answer health checks at any moment.
-4. **4th Sensor Support (Light / LDR)**:
-   * Added `#define LDR_PIN 35` for reading light intensity. (If not wired yet, it safely defaults to 0).
+Tailored specifically for the ultra-compact **ESP32-C3 Super Mini** (RISC-V architecture).
 
 ---
 
-## 🔌 Hardware Pin Connections (ESP32)
+## ⚠️ Important Changes for ESP32-C3
 
-| Sensor | Sensor Pin | ESP32 GPIO Pin | Type |
+1. **No GPIO 34 or 35**: Classic ESP32 analog pins `34` and `35` do **not** exist on the ESP32-C3.
+2. **WiFi + ADC Conflict Avoidance**: When WiFi is running on ESP32 chips, **ADC2 is unavailable**. Therefore, all analog sensors are routed to **ADC1** pins:
+   * **Soil Moisture (FC-28)** $\rightarrow$ **GPIO 0** (ADC1_CH0)
+   * **Light Sensor (LDR)** $\rightarrow$ **GPIO 1** (ADC1_CH1)
+3. **DHT22 Digital Pin**:
+   * **DHT22 Data** $\rightarrow$ **GPIO 3**
+4. **Onboard Blue LED (GPIO 8)**:
+   * Used for visual status: blinks during WiFi connection, flashes briefly upon sending telemetry or answering health pings.
+
+---
+
+## 📌 Wiring Diagram for ESP32-C3 Super Mini
+
+```
+             ┌───────────────────────┐
+             │   ESP32-C3 SuperMini  │
+             │                       │
+      [5V] --│ 5V                 21 │-- 
+     [GND] --│ GND                20 │-- 
+    [3.3V] --│ 3V3                 9 │-- [BOOT button]
+  Soil(A0) --│ GPIO 0              8 │-- [Onboard Blue LED]
+   LDR(A0) --│ GPIO 1              7 │-- 
+             │ GPIO 2              6 │-- 
+  DHT22(D) --│ GPIO 3              5 │-- 
+             │ GPIO 4             10 │-- 
+             │       [USB-C]         │
+             └───────────────────────┘
+```
+
+### Complete Pin Table
+
+| Sensor / Module | Sensor Pin | ESP32-C3 Pin | Purpose |
 |---|---|---|---|
-| **DHT22 / AM2302** (Temp & Hum) | VCC | 3.3V / 5V | Power |
-| | GND | GND | Ground |
-| | DATA | **GPIO 4** | Digital I/O |
-| **FC-28 / Capacitive Soil** | VCC | 3.3V | Power |
-| | GND | GND | Ground |
-| | A0 (Analog Out) | **GPIO 34** | ADC1 Analog In |
-| **LDR (Light Sensor)** *(Optional)* | VCC | 3.3V | Power |
-| | Signal (voltage divider) | **GPIO 35** | ADC1 Analog In |
+| **Power** | 5V / VBUS | `5V` | Power input from USB or external 5V |
+| **Power** | 3.3V | `3V3` | 3.3V sensor rail |
+| **Ground** | GND | `GND` | Common ground rail |
+| **FC-28 Soil Moisture** | A0 (Analog Out) | **GPIO 0** | ADC1_CH0 (0–4095) |
+| **LDR Light Sensor** | Signal (Voltage divider) | **GPIO 1** | ADC1_CH1 (0–4095) |
+| **DHT22 / AM2302** | DATA | **GPIO 3** | Digital I/O (Temp & Humidity) |
+| **Onboard Blue LED** | - | **GPIO 8** | Status indicator (Active LOW) |
+
+---
+
+## ⚙️ Arduino IDE Settings for ESP32-C3 Super Mini
+
+Under the **Tools** menu in Arduino IDE:
+
+| Setting | Value | Why |
+|---|---|---|
+| **Board** | **`ESP32C3 Dev Module`** | Standard ESP32-C3 core |
+| **USB CDC On Boot** | **`Enabled`** ⚠️ *(Crucial)* | Enables Serial.print() over the native USB-C port |
+| **CPU Frequency** | `160MHz (WiFi)` | Maximum performance |
+| **Flash Size** | `4MB (32Mb)` | Standard flash size |
+| **Upload Speed** | `921600` | Fast flashing |
+| **Port** | Select the recognized COM/ttyACM port | |
+
+*(If you don't see Serial output in the Serial Monitor, ensure **USB CDC On Boot** is set to **Enabled** and re-flash).*
 
 ---
 
 ## 📦 Required Arduino Libraries
 
-In the Arduino IDE (`Sketch -> Include Library -> Manage Libraries...`):
-* **DHT sensor library** by *Adafruit*
-* **Adafruit Unified Sensor** by *Adafruit*
-*(WiFi, WebServer, and HTTPClient are built into the official ESP32 Arduino Core)*
-
----
-
-## ⚙️ Configuration Before Flashing
-
-Open `esp_code.ino` and update:
-1. `WIFI_SSID` and `WIFI_PASSWORD` with your local WiFi network details.
-2. `SERVER_URL` with your computer's local LAN IP address (e.g. `http://192.168.1.50:4000/api/readings`). Run `ip a` or `hostname -I` on your computer to find your IP.
+In Arduino IDE (`Sketch -> Include Library -> Manage Libraries...`):
+1. **DHT sensor library** by *Adafruit*
+2. **Adafruit Unified Sensor** by *Adafruit*
+*(WiFi, WebServer, and HTTPClient are built into the ESP32 Core).*

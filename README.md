@@ -157,11 +157,13 @@ ESP can ping this route every 10–30 seconds:
 
 ---
 
-## 🤖 Microcontroller Code Example (ESP32 with Health Server)
+## 🤖 Microcontroller Code Example (ESP32-C3 Super Mini with Health Server)
 
-This sketch:
-1. Runs an onboard **HTTP WebServer** on port 80 serving `GET /health` so the backend can probe it.
-2. Periodically sends the 4 sensor readings to `POST /api/readings`.
+The firmware is specifically tailored for the **ESP32-C3 Super Mini** in [`esp code/esp_code.ino`](file:///home/zoom/Desktop/green%20node/esp%20code/esp_code.ino):
+* **DHT22** (Temp/Humidity) $\rightarrow$ **GPIO 3**
+* **FC-28 Soil Moisture** (Analog) $\rightarrow$ **GPIO 0** (ADC1_CH0)
+* **LDR Light Sensor** (Analog) $\rightarrow$ **GPIO 1** (ADC1_CH1)
+* **Onboard Status LED** $\rightarrow$ **GPIO 8** (Active LOW)
 
 ```cpp
 #include <WiFi.h>
@@ -171,9 +173,15 @@ This sketch:
 
 const char* ssid = "YOUR_WIFI_SSID";
 const char* password = "YOUR_WIFI_PASSWORD";
-const char* serverUrl = "http://192.168.1.100:4000/api/readings";
+const char* serverUrl = "http://10.88.145.39:4000/api/readings";
 
 const char* DEVICE_UUID = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
+
+// ESP32-C3 Super Mini Pin Definitions
+#define FC28_PIN  0       // Soil Moisture (ADC1_CH0)
+#define LDR_PIN   1       // Light Sensor (ADC1_CH1)
+#define DHTPIN    3       // DHT22 Data Pin
+#define LED_PIN   8       // Onboard Blue Status LED (Active LOW)
 
 // Onboard HTTP Server on port 80 for backend health probing
 WebServer healthServer(80);
