@@ -1,31 +1,54 @@
 import { z } from 'zod';
 
-export const createReadingSchema = z.object({
-  deviceId: z
-    .string()
-    .uuid({ message: 'deviceId must be a valid UUID (e.g. 123e4567-e89b-12d3-a456-426614174000)' })
-    .transform((val) => val.toLowerCase()),
-  temperature: z
-    .number()
-    .min(-50, 'temperature too low')
-    .max(100, 'temperature too high'),
-  humidity: z
-    .number()
-    .min(0, 'humidity must be between 0 and 100%')
-    .max(100, 'humidity must be between 0 and 100%'),
-  soilMoisture: z
-    .number()
-    .min(0, 'soilMoisture must be between 0 and 100%')
-    .max(100, 'soilMoisture must be between 0 and 100%'),
-  light: z
-    .number()
-    .min(0, 'light must be greater than or equal to 0'),
-  metadata: z.record(z.string(), z.any()).optional(),
-  timestamp: z
-    .union([z.string().datetime(), z.date()])
-    .optional()
-    .transform((val) => (val ? new Date(val) : new Date()))
-});
+export const createReadingSchema = z.preprocess(
+  (raw: any) => {
+    if (typeof raw === 'object' && raw !== null) {
+      const copy = { ...raw };
+      // Map aliases for device_id
+      if (!copy.deviceId && copy.device_id) {
+        copy.deviceId = copy.device_id;
+      }
+      // Map aliases for soil moisture
+      if (copy.soilMoisture === undefined) {
+        if (copy.soil_percent !== undefined) copy.soilMoisture = copy.soil_percent;
+        else if (copy.soil_moisture !== undefined) copy.soilMoisture = copy.soil_moisture;
+      }
+      // If light is omitted, default to 0
+      if (copy.light === undefined) {
+        copy.light = 0;
+      }
+      return copy;
+    }
+    return raw;
+  },
+  z.object({
+    deviceId: z
+      .string()
+      .uuid({ message: 'deviceId must be a valid UUID (e.g. 123e4567-e89b-12d3-a456-426614174000)' })
+      .transform((val) => val.toLowerCase()),
+    temperature: z
+      .number()
+      .min(-50, 'temperature too low')
+      .max(100, 'temperature too high'),
+    humidity: z
+      .number()
+      .min(0, 'humidity must be between 0 and 100%')
+      .max(100, 'humidity must be between 0 and 100%'),
+    soilMoisture: z
+      .number()
+      .min(0, 'soilMoisture must be between 0 and 100%')
+      .max(100, 'soilMoisture must be between 0 and 100%'),
+    light: z
+      .number()
+      .min(0, 'light must be greater than or equal to 0')
+      .default(0),
+    metadata: z.record(z.string(), z.any()).optional(),
+    timestamp: z
+      .union([z.string().datetime(), z.date()])
+      .optional()
+      .transform((val) => (val ? new Date(val) : new Date()))
+  })
+);
 
 export const batchReadingsSchema = z.object({
   readings: z

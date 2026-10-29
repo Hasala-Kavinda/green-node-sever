@@ -29,8 +29,8 @@ export class ReadingService {
       }
     };
 
-    if (callerIp) {
-      updateFields.ipAddress = callerIp;
+    if (callerIp && !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(callerIp)) {
+      updateFields.ipAddress = callerIp.replace('::ffff:', '');
     }
 
     const device = await Device.findOneAndUpdate(
@@ -403,7 +403,10 @@ export class ReadingService {
       };
     }
 
-    const targetUrl = `http://${device.ipAddress}:${device.port || 80}/health`;
+    const host = device.ipAddress.includes(':') && !device.ipAddress.startsWith('[')
+      ? `[${device.ipAddress}]`
+      : device.ipAddress;
+    const targetUrl = `http://${host}:${device.port || 80}/health`;
     const startTime = Date.now();
 
     try {
