@@ -1,82 +1,97 @@
 import { Reading, IReading } from '../models/Reading.js';
-import { Device } from '../models/Device.js';
+import { Device, IDevice } from '../models/Device.js';
 import { broadcast } from './websocket.service.js';
-import type { CreateReadingInput, QueryReadingsInput } from '../schemas/reading.schema.js';
+import type {
+  CreateReadingInput,
+  QueryReadingsInput,
+  RegisterDeviceInput,
+  UpdateDeviceInput
+} from '../schemas/reading.schema.js';
 
 export class ReadingService {
   /**
    * Save a single sensor reading and broadcast it in real time
+   * Location is tracked on the Device record in MongoDB, not inside the reading.
    */
   static async saveReading(input: CreateReadingInput): Promise<IReading> {
     const reading = new Reading(input);
     const savedReading = await reading.save();
 
-    // Update or register Device status
-    await Device.findOneAndUpdate(
+    // Update Device status & latestReading without overwriting its registered location
+    const device = await Device.findOneAndUpdate(
       { deviceId: input.deviceId },
       {
         $set: {
           lastSeen: savedReading.timestamp,
-          location: input.location || 'Greenhouse',
           status: 'online',
           latestReading: {
             temperature: savedReading.temperature,
             humidity: savedReading.humidity,
             soilMoisture: savedReading.soilMoisture,
             light: savedReading.light,
-            battery: savedReading.battery,
             timestamp: savedReading.timestamp
           }
         },
         $setOnInsert: {
-          name: `Sensor Node ${input.deviceId}`
+          name: `Sensor Node ${input.deviceId.substring(0, 8)}`,
+          location: 'Unassigned Zone'
         }
       },
       { upsert: true, new: true }
     );
 
-    // Broadcast in real-time to all connected WebSocket clients
-    broadcast('new_reading', savedReading);
+    // Broadcast reading along with registered device location for live dashboards
+    broadcast('new_reading', {
+      ...savedReading.toObject(),
+      deviceLocation: device.location,
+      deviceName: device.name
+    });
 
     return savedReading;
   }
 
   /**
-   * Bulk insert multiple readings (e.g. from an offline edge node syncing back)
+   * Bulk insert multiple readings
    */
   static async saveBatchReadings(readingsData: CreateReadingInput[]): Promise<{ count: number }> {
     const inserted = await Reading.insertMany(readingsData);
 
     if (inserted.length > 0) {
-      // Find latest reading in this batch to update device registry and broadcast
+      // Find latest reading in batch to update device registry
       const latest = inserted.reduce((prev, curr) =>
         new Date(curr.timestamp) > new Date(prev.timestamp) ? curr : prev
       );
 
-      await Device.findOneAndUpdate(
+      const device = await Device.findOneAndUpdate(
         { deviceId: latest.deviceId },
         {
           $set: {
             lastSeen: latest.timestamp,
-            location: latest.location || 'Greenhouse',
             status: 'online',
             latestReading: {
               temperature: latest.temperature,
               humidity: latest.humidity,
               soilMoisture: latest.soilMoisture,
               light: latest.light,
-              battery: latest.battery,
               timestamp: latest.timestamp
             }
           },
           $setOnInsert: {
-            name: `Sensor Node ${latest.deviceId}`
+            name: `Sensor Node ${latest.deviceId.substring(0, 8)}`,
+            location: 'Unassigned Zone'
           }
         },
-        { upsert: true }
+        { upsert: true, new: true }
       );
 
-      broadcast('batch_readings', { count: inserted.length, latest });
+      broadcast('batch_readings', {
+        count: inserted.length,
+        latest: {
+          ...latest.toObject(),
+          deviceLocation: device?.location,
+          deviceName: device?.name
+        }
+      });
     }
 
     return { count: inserted.length };
@@ -91,7 +106,7 @@ export class ReadingService {
     const filter: any = {};
 
     if (deviceId) {
-      filter.deviceId = deviceId;
+      filter.deviceId = deviceId.toLowerCase();
     }
 
     if (startDate || endDate) {
@@ -124,9 +139,19 @@ export class ReadingService {
   /**
    * Get the single latest reading (optionally per device)
    */
-  static async getLatestReading(deviceId?: string): Promise<IReading | null> {
-    const filter = deviceId ? { deviceId } : {};
-    return Reading.findOne(filter).sort({ timestamp: -1 }).lean();
+  static async getLatestReading(deviceId?: string) {
+    const filter = deviceId ? { deviceId: deviceId.toLowerCase() } : {};
+    const reading = await Reading.findOne(filter).sort({ timestamp: -1 }).lean();
+
+    if (!reading) return null;
+
+    // Attach registered device location from Device database record
+    const device = await Device.findOne({ deviceId: reading.deviceId }).lean();
+    return {
+      ...reading,
+      deviceLocation: device?.location || 'Unassigned Zone',
+      deviceName: device?.name || `Sensor Node ${reading.deviceId.substring(0, 8)}`
+    };
   }
 
   /**
@@ -137,7 +162,7 @@ export class ReadingService {
     const matchFilter: any = { timestamp: { $gte: sinceDate } };
 
     if (deviceId) {
-      matchFilter.deviceId = deviceId;
+      matchFilter.deviceId = deviceId.toLowerCase();
     }
 
     const aggregation = await Reading.aggregate([
@@ -173,7 +198,6 @@ export class ReadingService {
     const stats = aggregation[0];
     delete stats._id;
 
-    // Round averages to 2 decimal places
     const round = (val: number | null) => (val !== null ? Math.round(val * 100) / 100 : null);
 
     return {
@@ -207,9 +231,45 @@ export class ReadingService {
   }
 
   /**
-   * Get list of all registered sensor nodes
+   * Device Management: Register a device with its assigned location in database
+   */
+  static async registerDevice(input: RegisterDeviceInput): Promise<IDevice> {
+    const device = await Device.findOneAndUpdate(
+      { deviceId: input.deviceId.toLowerCase() },
+      {
+        $set: {
+          deviceId: input.deviceId.toLowerCase(),
+          location: input.location,
+          name: input.name || `Sensor Node ${input.deviceId.substring(0, 8)}`
+        }
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    return device;
+  }
+
+  /**
+   * Device Management: Update existing device metadata
+   */
+  static async updateDevice(deviceId: string, input: UpdateDeviceInput): Promise<IDevice | null> {
+    return Device.findOneAndUpdate(
+      { deviceId: deviceId.toLowerCase() },
+      { $set: input },
+      { new: true }
+    );
+  }
+
+  /**
+   * Device Management: Get list of all registered sensor nodes
    */
   static async getDevices() {
     return Device.find().sort({ lastSeen: -1 }).lean();
+  }
+
+  /**
+   * Device Management: Get single device by UUID
+   */
+  static async getDeviceById(deviceId: string) {
+    return Device.findOne({ deviceId: deviceId.toLowerCase() }).lean();
   }
 }

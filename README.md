@@ -10,72 +10,35 @@ Monitors and processes 4 core environmental metrics:
 
 ---
 
-## 🚀 Key Features
+## 📌 Architecture Highlights
 
-* **Real-time WebSockets (`/ws`)**: Instant push updates to dashboards and clients when any sensor reading arrives.
+* **UUID Device Identification**: Sensor nodes are identified by a standard UUID (e.g. `123e4567-e89b-12d3-a456-426614174000`).
+* **Database-Tracked Locations**: Sensor nodes do **not** transmit location in every reading. Instead, each node's location and friendly name are registered and maintained in the `Device` collection in the database.
+* **Streamlined Telemetry Payload**: Microcontrollers send only: `deviceId` (UUID), `temperature`, `humidity`, `soilMoisture`, `light`, and optional `timestamp`.
+* **Real-time WebSockets (`/ws`)**: Instant push updates to dashboards when any sensor reading arrives.
 * **REST API**:
-  * `POST /api/readings` - Real-time telemetry ingestion from microcontrollers (ESP32, ESP8266, Arduino, Raspberry Pi).
+  * `POST /api/devices` - Register a node UUID and assign its physical location.
+  * `PUT /api/devices/:deviceId` - Update device location, name, or status.
+  * `GET /api/devices` - List all registered devices and their database-tracked locations.
+  * `POST /api/readings` - Real-time telemetry ingestion from microcontrollers.
   * `POST /api/readings/batch` - Batch upload for offline nodes syncing cached readings.
-  * `GET /api/readings` - Historical sensor queries with device filtering, date ranges, and pagination.
-  * `GET /api/readings/latest` - Fetch the most recent reading across all or specific nodes.
+  * `GET /api/readings` - Historical sensor queries with device UUID filtering, date ranges, and pagination.
+  * `GET /api/readings/latest` - Fetch the most recent reading (includes database location).
   * `GET /api/readings/stats` - 24-hour min, max, and average statistical calculations.
-  * `GET /api/devices` - Registered sensor node registry and online/offline status tracking.
   * `GET /api/health` - System health, MongoDB connectivity, and active WebSocket client count.
-* **Interactive Live Dashboard**: Built-in web dashboard at `http://localhost:4000/` featuring live metric cards, comfort indicators, and a streaming telemetry feed.
-* **OpenAPI / Swagger UI Docs**: Interactive API documentation and test bench at `http://localhost:4000/docs`.
-* **Zero-Setup Database Fallback**: If a local or remote MongoDB instance is not detected, it automatically starts an in-memory MongoDB instance for instant development and testing.
-
----
-
-## 📁 Project Architecture
-
-```
-green-node/
-├── src/
-│   ├── app.ts                  # Server entrypoint (HTTP + WebSocket server)
-│   ├── config/
-│   │   ├── env.ts              # Strongly-typed environment variables
-│   │   └── database.ts         # Mongoose connection with in-memory fallback
-│   ├── controllers/
-│   │   └── reading.controller.ts # Express route handlers & validation
-│   ├── models/
-│   │   ├── Reading.ts          # Mongoose schema for time-series sensor data
-│   │   └── Device.ts           # Registry of active IoT nodes
-│   ├── public/
-│   │   └── index.html          # Built-in live browser dashboard
-│   ├── routes/
-│   │   ├── health.routes.ts    # Health & status endpoints
-│   │   └── reading.routes.ts   # Sensor REST endpoints
-│   ├── schemas/
-│   │   └── reading.schema.ts   # Zod request validation schemas
-│   ├── services/
-│   │   ├── reading.service.ts  # Database operations & statistical queries
-│   │   └── websocket.service.ts# WebSocket streaming & broadcast manager
-│   └── swagger/
-│       └── openapi.ts          # OpenAPI 3.0 specification
-├── scripts/
-│   └── simulate_node.ts        # IoT device telemetry simulator
-├── docker-compose.yml          # Optional local MongoDB + Mongo Express container
-├── .env.example
-├── tsconfig.json
-└── package.json
-```
+* **Interactive Live Dashboard**: Built-in web dashboard at `http://localhost:4000/`.
+* **OpenAPI / Swagger UI Docs**: Interactive API documentation at `http://localhost:4000/docs`.
 
 ---
 
 ## 🛠️ Getting Started
 
-### 1. Prerequisites
-- **Node.js** v18+ (tested on Node v24)
-- **MongoDB** (optional: runs automatically in-memory if MongoDB is not running locally)
-
-### 2. Installation
+### 1. Installation
 ```bash
 npm install
 ```
 
-### 3. Environment Configuration
-Copy the sample environment file:
+### 2. Environment Configuration
 ```bash
 cp .env.example .env
 ```
@@ -86,17 +49,9 @@ NODE_ENV=development
 MONGODB_URI=mongodb://localhost:27017/green_node
 CORS_ORIGIN=*
 ```
-*(If you want to use MongoDB Atlas, replace `MONGODB_URI` with your connection string: `mongodb+srv://<user>:<password>@cluster.mongodb.net/green_node`)*
+*(If a local or remote MongoDB is not detected, the backend will automatically spin up an in-memory MongoDB instance for instant zero-setup development).*
 
-### 4. Running the Database (Optional)
-If you have Docker installed and want persistent local storage with a web UI:
-```bash
-docker compose up -d
-```
-* MongoDB: `mongodb://localhost:27017`
-* Mongo Express UI: `http://localhost:8081`
-
-### 5. Start the Server
+### 3. Build & Run
 * **Development mode (with auto-restart)**:
   ```bash
   npm run dev
@@ -107,37 +62,48 @@ docker compose up -d
   npm start
   ```
 
-Once started, access:
-* **Live Dashboard**: [http://localhost:4000](http://localhost:4000)
-* **Swagger API Docs**: [http://localhost:4000/docs](http://localhost:4000/docs)
-* **Health Check**: [http://localhost:4000/api/health](http://localhost:4000/api/health)
-
 ---
 
-## 🤖 Running the IoT Node Simulator
+## 📍 1. Device Registration (Track Location by UUID)
 
-To test the backend without hardware, launch the built-in simulator:
-```bash
-npm run simulate
+Register the device UUID in the database with its physical location:
+* **Endpoint**: `POST /api/devices`
+* **Body**:
+```json
+{
+  "deviceId": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+  "name": "North Greenhouse Sensor",
+  "location": "Greenhouse Bay 1 - Tomatoes"
+}
 ```
-This simulates two nodes (`node-greenhouse-01` and `node-greenhouse-02`) broadcasting realistic fluctuating temperature, humidity, soil moisture, and light data every 3 seconds. Open [http://localhost:4000](http://localhost:4000) to watch the live data stream.
+* **Response (`201 Created`)**:
+```json
+{
+  "success": true,
+  "message": "Device registered successfully",
+  "data": {
+    "deviceId": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+    "name": "North Greenhouse Sensor",
+    "location": "Greenhouse Bay 1 - Tomatoes",
+    "status": "online"
+  }
+}
+```
 
 ---
 
-## 📡 REST API Reference
+## 📡 2. Ingest Sensor Readings
 
-### 1. Ingest a Sensor Reading
+The sensor node posts only its UUID and the 4 sensor readings:
 * **Endpoint**: `POST /api/readings`
 * **Body**:
 ```json
 {
-  "deviceId": "node-greenhouse-01",
-  "temperature": 24.5,
-  "humidity": 62.0,
-  "soilMoisture": 45.8,
-  "light": 540,
-  "battery": 95,
-  "location": "Zone 1 - Heirloom Tomatoes"
+  "deviceId": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+  "temperature": 25.2,
+  "humidity": 64.5,
+  "soilMoisture": 48.0,
+  "light": 620
 }
 ```
 * **Response (`201 Created`)**:
@@ -146,59 +112,44 @@ This simulates two nodes (`node-greenhouse-01` and `node-greenhouse-02`) broadca
   "success": true,
   "message": "Sensor reading recorded successfully",
   "data": {
-    "deviceId": "node-greenhouse-01",
-    "temperature": 24.5,
-    "humidity": 62.0,
-    "soilMoisture": 45.8,
-    "light": 540,
-    "battery": 95,
-    "location": "Zone 1 - Heirloom Tomatoes",
-    "timestamp": "2026-10-29T11:00:00.000Z",
-    "_id": "6720bb1c080b08e2f89c92a1"
+    "_id": "6ae2dc4ef72478f80c7e0ed1",
+    "deviceId": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+    "temperature": 25.2,
+    "humidity": 64.5,
+    "soilMoisture": 48.0,
+    "light": 620,
+    "timestamp": "2026-10-29T05:40:30.772Z"
   }
 }
 ```
 
-### 2. Batch Ingest Readings
-* **Endpoint**: `POST /api/readings/batch`
-* **Body**:
+---
+
+## 🔍 3. Query Latest Reading
+
+* **Endpoint**: `GET /api/readings/latest?deviceId=a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11`
+* **Response**:
 ```json
 {
-  "readings": [
-    {
-      "deviceId": "node-greenhouse-01",
-      "temperature": 24.1,
-      "humidity": 61.5,
-      "soilMoisture": 45.0,
-      "light": 510
-    },
-    {
-      "deviceId": "node-greenhouse-01",
-      "temperature": 24.4,
-      "humidity": 62.0,
-      "soilMoisture": 45.2,
-      "light": 530
-    }
-  ]
+  "success": true,
+  "data": {
+    "_id": "6ae2dc4ef72478f80c7e0ed1",
+    "deviceId": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+    "temperature": 25.2,
+    "humidity": 64.5,
+    "soilMoisture": 48.0,
+    "light": 620,
+    "timestamp": "2026-10-29T05:40:30.772Z",
+    "deviceLocation": "Greenhouse Bay 1 - Tomatoes",
+    "deviceName": "North Greenhouse Sensor"
+  }
 }
 ```
 
-### 3. Query Historical Readings
-* **Endpoint**: `GET /api/readings`
-* **Query Parameters**:
-  * `deviceId` *(optional)*: Filter by node ID (e.g. `node-greenhouse-01`)
-  * `startDate` *(optional)*: ISO-8601 start timestamp
-  * `endDate` *(optional)*: ISO-8601 end timestamp
-  * `limit` *(optional, default 50)*: Number of records
-  * `page` *(optional, default 1)*: Page number
-  * `sortBy` *(optional, default timestamp)*: Field to sort by (`timestamp`, `temperature`, etc.)
-  * `sortOrder` *(optional, default desc)*: `asc` or `desc`
+---
 
-### 4. Get Latest Reading
-* **Endpoint**: `GET /api/readings/latest`
-* **Query Parameters**: `deviceId` *(optional)*
+## 📊 4. 24-Hour Statistical Summary
 
-### 5. Get 24-Hour Statistics
 * **Endpoint**: `GET /api/readings/stats?hours=24`
 * **Response**:
 ```json
@@ -206,49 +157,28 @@ This simulates two nodes (`node-greenhouse-01` and `node-greenhouse-02`) broadca
   "success": true,
   "data": {
     "timeframeHours": 24,
-    "totalReadings": 320,
-    "temperature": { "avg": 23.4, "min": 18.2, "max": 28.5, "unit": "°C" },
-    "humidity": { "avg": 64.2, "min": 52.0, "max": 78.4, "unit": "%" },
-    "soilMoisture": { "avg": 42.1, "min": 31.0, "max": 65.0, "unit": "%" },
-    "light": { "avg": 510.5, "min": 20, "max": 950, "unit": "Lux" }
+    "totalReadings": 1280,
+    "temperature": { "avg": 24.1, "min": 18.5, "max": 29.2, "unit": "°C" },
+    "humidity": { "avg": 63.4, "min": 52.0, "max": 76.1, "unit": "%" },
+    "soilMoisture": { "avg": 45.8, "min": 32.0, "max": 60.5, "unit": "%" },
+    "light": { "avg": 580.0, "min": 0, "max": 1100, "unit": "Lux" }
   }
 }
 ```
 
-### 6. List Known Sensor Nodes
-* **Endpoint**: `GET /api/devices`
-
 ---
 
-## ⚡ Real-Time WebSocket Guide
+## 🤖 Running the IoT Simulator
 
-Connect any frontend, mobile app, or client to:
+To test the backend and live WebSocket stream:
+```bash
+npm run simulate
 ```
-ws://localhost:4000/ws
-```
-
-### Event: `new_reading`
-Broadcast whenever a sensor posts data:
-```json
-{
-  "event": "new_reading",
-  "data": {
-    "deviceId": "node-greenhouse-01",
-    "temperature": 24.5,
-    "humidity": 62.0,
-    "soilMoisture": 45.8,
-    "light": 540,
-    "timestamp": "2026-10-29T11:00:00.000Z"
-  },
-  "timestamp": "2026-10-29T11:00:00.100Z"
-}
-```
+This registers two device UUIDs in the database with their respective locations and streams fluctuating sensor readings every 3 seconds.
 
 ---
 
 ## 🔌 Microcontroller Code Example (ESP32 / Arduino C++)
-
-Sample sketch for an ESP32 reading a **DHT22 / BME280** (Humidity/Temp), a **Capacitive Soil Moisture Sensor**, and an **LDR / BH1750** (Light):
 
 ```cpp
 #include <WiFi.h>
@@ -259,8 +189,8 @@ const char* ssid = "YOUR_WIFI_SSID";
 const char* password = "YOUR_WIFI_PASSWORD";
 const char* serverUrl = "http://192.168.1.100:4000/api/readings";
 
-const char* DEVICE_ID = "node-greenhouse-01";
-const char* LOCATION = "Zone 1 - Tomatoes";
+// Standard UUID assigned to this physical device
+const char* DEVICE_UUID = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
 
 void setup() {
   Serial.begin(115200);
@@ -278,29 +208,27 @@ void loop() {
     http.begin(serverUrl);
     http.addHeader("Content-Type", "application/json");
 
-    // Replace with actual sensor readings:
+    // Read your analog/digital sensors:
     float temperature = 24.8;     // e.g. dht.readTemperature()
     float humidity = 63.5;        // e.g. dht.readHumidity()
-    float soilMoisture = 48.0;    // map(analogRead(SOIL_PIN), AIR_VAL, WATER_VAL, 0, 100)
-    float light = 650.0;          // e.g. lightMeter.readLightLevel()
+    float soilMoisture = 48.0;    // capacitive soil moisture analog reading
+    float light = 650.0;          // BH1750 or LDR sensor reading
 
     StaticJsonDocument<256> doc;
-    doc["deviceId"] = DEVICE_ID;
-    doc["location"] = LOCATION;
+    doc["deviceId"] = DEVICE_UUID;
     doc["temperature"] = temperature;
     doc["humidity"] = humidity;
     doc["soilMoisture"] = soilMoisture;
     doc["light"] = light;
-    doc["battery"] = 96;
 
     String requestBody;
     serializeJson(doc, requestBody);
 
     int httpResponseCode = http.POST(requestBody);
-    Serial.printf("POST Response code: %d\n", httpResponseCode);
+    Serial.printf("POST Response: %d\n", httpResponseCode);
     http.end();
   }
 
-  delay(5000); // Send reading every 5 seconds
+  delay(5000); // Sample & send every 5 seconds
 }
 ```

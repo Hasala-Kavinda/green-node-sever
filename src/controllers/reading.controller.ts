@@ -3,7 +3,9 @@ import { ReadingService } from '../services/reading.service.js';
 import {
   createReadingSchema,
   batchReadingsSchema,
-  queryReadingsSchema
+  queryReadingsSchema,
+  registerDeviceSchema,
+  updateDeviceSchema
 } from '../schemas/reading.schema.js';
 
 export class ReadingController {
@@ -144,6 +146,73 @@ export class ReadingController {
   }
 
   /**
+   * POST /api/devices (Register a device with UUID and location)
+   */
+  static async registerDevice(req: Request, res: Response): Promise<void> {
+    try {
+      const validatedData = registerDeviceSchema.parse(req.body);
+      const device = await ReadingService.registerDevice(validatedData);
+
+      res.status(201).json({
+        success: true,
+        message: 'Device registered successfully',
+        data: device
+      });
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        res.status(400).json({
+          success: false,
+          error: 'Device registration validation failed',
+          details: error.errors
+        });
+        return;
+      }
+      res.status(500).json({
+        success: false,
+        error: error.message || 'Internal Server Error'
+      });
+    }
+  }
+
+  /**
+   * PUT /api/devices/:deviceId (Update location, name, or status)
+   */
+  static async updateDevice(req: Request, res: Response): Promise<void> {
+    try {
+      const deviceId = Array.isArray(req.params.deviceId) ? req.params.deviceId[0] : req.params.deviceId;
+      const validatedData = updateDeviceSchema.parse(req.body);
+      const device = await ReadingService.updateDevice(deviceId, validatedData);
+
+      if (!device) {
+        res.status(404).json({
+          success: false,
+          error: 'Device not found'
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        message: 'Device updated successfully',
+        data: device
+      });
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        res.status(400).json({
+          success: false,
+          error: 'Device update validation failed',
+          details: error.errors
+        });
+        return;
+      }
+      res.status(500).json({
+        success: false,
+        error: error.message || 'Internal Server Error'
+      });
+    }
+  }
+
+  /**
    * GET /api/devices
    */
   static async getDevices(_req: Request, res: Response): Promise<void> {
@@ -153,6 +222,33 @@ export class ReadingController {
         success: true,
         count: devices.length,
         data: devices
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        error: error.message || 'Internal Server Error'
+      });
+    }
+  }
+
+  /**
+   * GET /api/devices/:deviceId
+   */
+  static async getDeviceById(req: Request, res: Response): Promise<void> {
+    try {
+      const deviceId = Array.isArray(req.params.deviceId) ? req.params.deviceId[0] : req.params.deviceId;
+      const device = await ReadingService.getDeviceById(deviceId);
+      if (!device) {
+        res.status(404).json({
+          success: false,
+          error: 'Device not found'
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        data: device
       });
     } catch (error: any) {
       res.status(500).json({

@@ -1,13 +1,11 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IReading extends Document {
-  deviceId: string;
+  deviceId: string;         // UUID of the sensor node
   temperature: number;      // in Celsius (°C)
   humidity: number;         // in % (0-100)
-  soilMoisture: number;     // in % (0-100) or calibrated sensor percentage
-  light: number;            // in Lux or sensor reading
-  battery?: number;         // in volts (e.g. 3.7) or % (0-100)
-  location?: string;        // e.g. "Greenhouse-North-Bed-1"
+  soilMoisture: number;     // in % (0-100)
+  light: number;            // in Lux (>= 0)
   metadata?: Record<string, any>;
   timestamp: Date;
 }
@@ -18,6 +16,7 @@ const ReadingSchema: Schema = new Schema<IReading>(
       type: String,
       required: [true, 'deviceId is required'],
       trim: true,
+      lowercase: true,
       index: true
     },
     temperature: {
@@ -41,16 +40,6 @@ const ReadingSchema: Schema = new Schema<IReading>(
       required: [true, 'light reading is required'],
       min: [0, 'light reading cannot be negative']
     },
-    battery: {
-      type: Number,
-      required: false
-    },
-    location: {
-      type: String,
-      required: false,
-      trim: true,
-      default: 'Default Zone'
-    },
     metadata: {
       type: Schema.Types.Mixed,
       required: false
@@ -67,7 +56,7 @@ const ReadingSchema: Schema = new Schema<IReading>(
   }
 );
 
-// Compound index for fast queries by device and time range
+// Compound index for device and time-series lookups
 ReadingSchema.index({ deviceId: 1, timestamp: -1 });
 
 export const Reading = mongoose.model<IReading>('Reading', ReadingSchema);

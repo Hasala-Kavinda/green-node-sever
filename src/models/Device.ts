@@ -1,9 +1,9 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IDevice extends Document {
-  deviceId: string;
-  name: string;
-  location: string;
+  deviceId: string;       // Unique UUID of the node
+  name: string;           // Friendly name, e.g. "Node Alpha"
+  location: string;       // Assigned location/zone registered in database
   lastSeen: Date;
   status: 'online' | 'warning' | 'offline';
   latestReading?: {
@@ -11,7 +11,6 @@ export interface IDevice extends Document {
     humidity: number;
     soilMoisture: number;
     light: number;
-    battery?: number;
     timestamp: Date;
   };
 }
@@ -22,7 +21,9 @@ const DeviceSchema: Schema = new Schema<IDevice>(
       type: String,
       required: true,
       unique: true,
-      trim: true
+      trim: true,
+      lowercase: true,
+      index: true
     },
     name: {
       type: String,
@@ -32,7 +33,8 @@ const DeviceSchema: Schema = new Schema<IDevice>(
     location: {
       type: String,
       required: false,
-      default: 'Greenhouse'
+      default: 'Unassigned Zone',
+      trim: true
     },
     lastSeen: {
       type: Date,
@@ -48,7 +50,6 @@ const DeviceSchema: Schema = new Schema<IDevice>(
       humidity: Number,
       soilMoisture: Number,
       light: Number,
-      battery: Number,
       timestamp: Date
     }
   },

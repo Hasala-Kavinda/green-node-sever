@@ -29,7 +29,7 @@
           <h1 class="text-xl font-bold tracking-tight bg-gradient-to-r from-emerald-400 to-teal-200 bg-clip-text text-transparent">
             Green Node
           </h1>
-          <p class="text-xs text-slate-400">Environment & Soil Telemetry Hub</p>
+          <p class="text-xs text-slate-400">Environment & Soil Telemetry Hub (UUID / DB Tracked)</p>
         </div>
       </div>
 
@@ -64,19 +64,18 @@
     <!-- Status / Info Bar -->
     <div class="flex flex-wrap items-center justify-between gap-4 p-4 rounded-2xl bg-slate-900/50 border border-slate-800 text-sm">
       <div class="flex items-center space-x-3">
-        <span class="text-slate-400">Active Node:</span>
-        <span id="currentDevice" class="font-mono px-2.5 py-1 rounded-md bg-slate-800 text-emerald-400 font-semibold border border-slate-700">
-          Waiting for data...
+        <span class="text-slate-400">Active Node (UUID):</span>
+        <span id="currentDevice" class="font-mono text-xs px-2.5 py-1 rounded-md bg-slate-800 text-emerald-400 font-semibold border border-slate-700" title="Node UUID">
+          Waiting for telemetry...
         </span>
-        <span id="currentLocation" class="text-slate-400 text-xs italic"></span>
+        <span id="currentLocationBadge" class="px-2.5 py-1 rounded-md bg-teal-900/40 text-teal-300 text-xs border border-teal-800/60 font-medium">
+          <i class="fa-solid fa-location-dot mr-1"></i>
+          <span id="currentLocation">Location: DB Tracked</span>
+        </span>
       </div>
       <div class="flex items-center space-x-6 text-slate-400 text-xs">
         <div>
-          <span>Battery: </span>
-          <span id="currentBattery" class="font-medium text-slate-200">--%</span>
-        </div>
-        <div>
-          <span>Last Updated: </span>
+          <span>Last Received: </span>
           <span id="lastUpdated" class="font-medium text-slate-200">Never</span>
         </div>
         <div>
@@ -105,7 +104,7 @@
           </div>
         </div>
         <div class="mt-4 pt-4 border-t border-slate-800/80 flex justify-between items-center text-xs text-slate-400">
-          <span>Comfort Range: 18 - 28°C</span>
+          <span>Ideal Range: 18 - 28°C</span>
           <span id="statusTemp" class="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-800 text-slate-400">--</span>
         </div>
       </div>
@@ -268,7 +267,7 @@
             <thead>
               <tr class="border-b border-slate-800 text-slate-400">
                 <th class="py-2.5 px-3">Timestamp</th>
-                <th class="py-2.5 px-3">Device ID</th>
+                <th class="py-2.5 px-3">Device UUID</th>
                 <th class="py-2.5 px-3">Temp (°C)</th>
                 <th class="py-2.5 px-3">Humidity (%)</th>
                 <th class="py-2.5 px-3">Soil (%)</th>
@@ -293,13 +292,32 @@
 
   <!-- Footer -->
   <footer class="border-t border-slate-800/80 bg-slate-950 py-4 px-6 text-center text-xs text-slate-500">
-    Green Node IoT System • Node.js, Express, TypeScript, Mongoose, WebSockets • 2026
+    Green Node IoT System • UUID Tracked • Node.js, Express, TypeScript, Mongoose, WebSockets • 2026
   </footer>
 
   <!-- Script -->
   <script>
     let socket = null;
     let totalPackets = 0;
+    // Default demo UUID for test button
+    const DEMO_DEVICE_UUID = 'e4aa1234-5678-4a9b-bcde-0123456789ab';
+
+    // Pre-register demo device location if not registered
+    async function ensureDemoDeviceRegistered() {
+      try {
+        await fetch('/api/devices', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            deviceId: DEMO_DEVICE_UUID,
+            name: 'Demo Bench Node',
+            location: 'Greenhouse Bay 1 - Hydroponics'
+          })
+        });
+      } catch (e) {
+        // Ignored
+      }
+    }
 
     // Connect WebSocket
     function connectWS() {
@@ -347,8 +365,9 @@
 
       // Update Device Info
       document.getElementById('currentDevice').textContent = reading.deviceId || 'Unknown';
-      document.getElementById('currentLocation').textContent = reading.location ? `(${reading.location})` : '';
-      document.getElementById('currentBattery').textContent = reading.battery !== undefined ? `${reading.battery}%` : 'N/A';
+      
+      const locationText = reading.deviceLocation || 'Location: Registered in DB';
+      document.getElementById('currentLocation').textContent = locationText;
       document.getElementById('lastUpdated').textContent = new Date(reading.timestamp || Date.now()).toLocaleTimeString();
 
       // Temperature
@@ -412,10 +431,11 @@
       tr.className = 'hover:bg-slate-800/40 transition border-b border-slate-800/40 animate-pulse';
 
       const time = new Date(reading.timestamp || Date.now()).toLocaleTimeString();
+      const shortUuid = reading.deviceId ? `${reading.deviceId.substring(0, 8)}...` : 'Unknown';
 
       tr.innerHTML = `
         <td class="py-2.5 px-3 text-slate-400">${time}</td>
-        <td class="py-2.5 px-3 text-emerald-400 font-bold">${reading.deviceId}</td>
+        <td class="py-2.5 px-3 text-emerald-400 font-bold" title="${reading.deviceId}">${shortUuid}</td>
         <td class="py-2.5 px-3 text-orange-400">${Number(reading.temperature).toFixed(1)}</td>
         <td class="py-2.5 px-3 text-cyan-400">${Number(reading.humidity).toFixed(1)}</td>
         <td class="py-2.5 px-3 text-emerald-400">${Number(reading.soilMoisture).toFixed(1)}</td>
@@ -424,7 +444,6 @@
 
       tbody.insertBefore(tr, tbody.firstChild);
 
-      // Keep only last 15 rows
       while (tbody.children.length > 15) {
         tbody.removeChild(tbody.lastChild);
       }
@@ -489,7 +508,7 @@
       }
     }
 
-    // Send sample reading test
+    // Send sample reading test (UUID only, no battery or location)
     async function sendSampleReading() {
       const temp = +(20 + Math.random() * 10).toFixed(1);
       const hum = +(50 + Math.random() * 25).toFixed(1);
@@ -497,13 +516,11 @@
       const light = +(300 + Math.random() * 500).toFixed(0);
 
       const payload = {
-        deviceId: 'node-greenhouse-01',
+        deviceId: DEMO_DEVICE_UUID,
         temperature: temp,
         humidity: hum,
         soilMoisture: soil,
-        light: light,
-        battery: 94,
-        location: 'Zone A - Tomatoes'
+        light: light
       };
 
       try {
@@ -521,9 +538,10 @@
     }
 
     // Start
+    ensureDemoDeviceRegistered();
     connectWS();
     fetchInitial();
-    setInterval(fetchStats, 60000); // refresh stats every minute
+    setInterval(fetchStats, 60000);
   </script>
 </body>
 </html>

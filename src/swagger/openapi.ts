@@ -2,7 +2,7 @@ export const swaggerDocument = {
   openapi: '3.0.0',
   info: {
     title: 'Green Node IoT Sensor Backend API',
-    version: '1.0.0',
+    version: '1.1.0',
     description: `
 REST & WebSocket API for greenhouse, plant monitoring, and smart agriculture IoT sensor nodes.
 Collects and serves:
@@ -10,6 +10,7 @@ Collects and serves:
 * **Temperature** (°C)
 * **Soil Moisture** (% volumetric / calibrated)
 * **Light Sensor** (Lux / ambient intensity)
+* Devices are tracked by standard **UUID**. Physical **location** is managed on device registration.
 * Real-time WebSocket streaming at \`ws://<host>:<port>/ws\`
     `
   },
@@ -21,7 +22,7 @@ Collects and serves:
   ],
   tags: [
     { name: 'Readings', description: 'Sensor data ingestion and queries' },
-    { name: 'Devices', description: 'Sensor nodes registry and status' },
+    { name: 'Devices', description: 'Sensor nodes registration and location management' },
     { name: 'Health', description: 'System health and connection status' }
   ],
   paths: {
@@ -29,7 +30,7 @@ Collects and serves:
       post: {
         tags: ['Readings'],
         summary: 'Ingest a single sensor reading',
-        description: 'Send current humidity, temperature, soil moisture, and light data from an IoT node (e.g. ESP32, Arduino, Raspberry Pi). Automatically broadcasts to real-time WebSocket clients.',
+        description: 'Send current humidity, temperature, soil moisture, and light data from an IoT node with its UUID. Broadcasts in real-time over WebSocket.',
         requestBody: {
           required: true,
           content: {
@@ -38,13 +39,11 @@ Collects and serves:
                 $ref: '#/components/schemas/CreateReadingInput'
               },
               example: {
-                deviceId: 'node-greenhouse-01',
+                deviceId: 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
                 temperature: 24.5,
                 humidity: 65.2,
                 soilMoisture: 42.0,
-                light: 520,
-                battery: 92,
-                location: 'Zone A - Tomatoes'
+                light: 520
               }
             }
           }
@@ -66,26 +65,26 @@ Collects and serves:
             }
           },
           400: {
-            description: 'Validation Error (invalid value ranges or missing fields)'
+            description: 'Validation Error (invalid UUID or out-of-range sensor values)'
           }
         }
       },
       get: {
         tags: ['Readings'],
         summary: 'Query sensor readings history',
-        description: 'Retrieve paginated historical readings with optional filters for deviceId and date range.',
+        description: 'Retrieve paginated historical readings with optional filters for deviceId (UUID) and date range.',
         parameters: [
           {
             name: 'deviceId',
             in: 'query',
-            description: 'Filter by specific node identifier',
+            description: 'Filter by specific node UUID',
             required: false,
-            schema: { type: 'string' }
+            schema: { type: 'string', format: 'uuid' }
           },
           {
             name: 'startDate',
             in: 'query',
-            description: 'ISO-8601 start timestamp filter (e.g. 2026-10-29T00:00:00Z)',
+            description: 'ISO-8601 start timestamp filter',
             required: false,
             schema: { type: 'string', format: 'date-time' }
           },
@@ -131,30 +130,7 @@ Collects and serves:
         ],
         responses: {
           200: {
-            description: 'Paginated list of sensor readings',
-            content: {
-              'application/json': {
-                schema: {
-                  type: 'object',
-                  properties: {
-                    success: { type: 'boolean', example: true },
-                    items: {
-                      type: 'array',
-                      items: { $ref: '#/components/schemas/Reading' }
-                    },
-                    pagination: {
-                      type: 'object',
-                      properties: {
-                        page: { type: 'integer', example: 1 },
-                        limit: { type: 'integer', example: 50 },
-                        total: { type: 'integer', example: 1420 },
-                        totalPages: { type: 'integer', example: 29 }
-                      }
-                    }
-                  }
-                }
-              }
-            }
+            description: 'Paginated list of sensor readings'
           }
         }
       }
@@ -163,7 +139,7 @@ Collects and serves:
       post: {
         tags: ['Readings'],
         summary: 'Batch ingest sensor readings',
-        description: 'Upload an array of readings. Perfect for edge nodes reconnecting after an offline period.',
+        description: 'Upload an array of readings from edge nodes.',
         requestBody: {
           required: true,
           content: {
@@ -192,14 +168,14 @@ Collects and serves:
       get: {
         tags: ['Readings'],
         summary: 'Get most recent sensor reading',
-        description: 'Returns the latest single reading from all devices or filtered by deviceId.',
+        description: 'Returns the latest single reading, including the registered device location from the database.',
         parameters: [
           {
             name: 'deviceId',
             in: 'query',
-            description: 'Specific node ID',
+            description: 'Specific node UUID',
             required: false,
-            schema: { type: 'string' }
+            schema: { type: 'string', format: 'uuid' }
           }
         ],
         responses: {
@@ -221,16 +197,16 @@ Collects and serves:
           {
             name: 'hours',
             in: 'query',
-            description: 'Lookback timeframe in hours (e.g. 1, 6, 24, 72)',
+            description: 'Lookback timeframe in hours (default: 24)',
             required: false,
             schema: { type: 'integer', default: 24 }
           },
           {
             name: 'deviceId',
             in: 'query',
-            description: 'Filter stats to a specific node',
+            description: 'Filter stats to a specific node UUID',
             required: false,
-            schema: { type: 'string' }
+            schema: { type: 'string', format: 'uuid' }
           }
         ],
         responses: {
@@ -241,10 +217,36 @@ Collects and serves:
       }
     },
     '/api/devices': {
+      post: {
+        tags: ['Devices'],
+        summary: 'Register a device and assign its location',
+        description: 'Register a sensor node UUID in the database with a human-readable name and its physical installation location.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['deviceId', 'location'],
+                properties: {
+                  deviceId: { type: 'string', format: 'uuid', example: 'f47ac10b-58cc-4372-a567-0e02b2c3d479' },
+                  name: { type: 'string', example: 'Bay 1 Tomato Sensor' },
+                  location: { type: 'string', example: 'Greenhouse North - Tray 4' }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          201: {
+            description: 'Device registered successfully'
+          }
+        }
+      },
       get: {
         tags: ['Devices'],
-        summary: 'List active sensor nodes',
-        description: 'Returns all detected sensor nodes, their last seen timestamps, locations, and latest readings.',
+        summary: 'List all registered devices',
+        description: 'Returns all detected or registered sensor nodes, their assigned locations, last seen timestamps, and status.',
         responses: {
           200: {
             description: 'List of devices'
@@ -252,18 +254,61 @@ Collects and serves:
         }
       }
     },
+    '/api/devices/{deviceId}': {
+      get: {
+        tags: ['Devices'],
+        summary: 'Get device details by UUID',
+        parameters: [
+          {
+            name: 'deviceId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' }
+          }
+        ],
+        responses: {
+          200: { description: 'Device found' },
+          404: { description: 'Device not found' }
+        }
+      },
+      put: {
+        tags: ['Devices'],
+        summary: 'Update device location or metadata',
+        parameters: [
+          {
+            name: 'deviceId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' }
+          }
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  name: { type: 'string' },
+                  location: { type: 'string' },
+                  status: { type: 'string', enum: ['online', 'warning', 'offline'] }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          200: { description: 'Device updated' },
+          404: { description: 'Device not found' }
+        }
+      }
+    },
     '/api/health': {
       get: {
         tags: ['Health'],
         summary: 'System health check',
-        description: 'Returns status of backend, MongoDB connection state, uptime, and connected WebSocket clients.',
         responses: {
-          200: {
-            description: 'System healthy'
-          },
-          503: {
-            description: 'System degraded or disconnected from database'
-          }
+          200: { description: 'System healthy' }
         }
       }
     }
@@ -274,13 +319,11 @@ Collects and serves:
         type: 'object',
         required: ['deviceId', 'temperature', 'humidity', 'soilMoisture', 'light'],
         properties: {
-          deviceId: { type: 'string', example: 'node-greenhouse-01' },
+          deviceId: { type: 'string', format: 'uuid', example: 'f47ac10b-58cc-4372-a567-0e02b2c3d479' },
           temperature: { type: 'number', example: 24.5, description: 'Temperature in Celsius (-50 to 100)' },
           humidity: { type: 'number', example: 65.0, description: 'Relative humidity % (0 to 100)' },
           soilMoisture: { type: 'number', example: 45.2, description: 'Soil moisture % (0 to 100)' },
           light: { type: 'number', example: 680, description: 'Ambient light in Lux (>= 0)' },
-          battery: { type: 'number', example: 95, description: 'Optional battery % or voltage' },
-          location: { type: 'string', example: 'Tray 3 - Herbs' },
           metadata: { type: 'object', additionalProperties: true },
           timestamp: { type: 'string', format: 'date-time', description: 'Optional ISO timestamp. Defaults to now.' }
         }
@@ -289,13 +332,11 @@ Collects and serves:
         type: 'object',
         properties: {
           _id: { type: 'string', example: '6720bb1c080b08e2f89c92a1' },
-          deviceId: { type: 'string', example: 'node-greenhouse-01' },
+          deviceId: { type: 'string', format: 'uuid', example: 'f47ac10b-58cc-4372-a567-0e02b2c3d479' },
           temperature: { type: 'number', example: 24.5 },
           humidity: { type: 'number', example: 65.0 },
           soilMoisture: { type: 'number', example: 45.2 },
           light: { type: 'number', example: 680 },
-          battery: { type: 'number', example: 95 },
-          location: { type: 'string', example: 'Tray 3 - Herbs' },
           timestamp: { type: 'string', format: 'date-time' }
         }
       }
