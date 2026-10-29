@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import crypto from 'crypto';
 
 export const createReadingSchema = z.preprocess(
   (raw: any) => {
@@ -71,7 +72,8 @@ export const registerDeviceSchema = z.object({
   deviceId: z
     .string()
     .uuid({ message: 'deviceId must be a valid UUID (e.g. 123e4567-e89b-12d3-a456-426614174000)' })
-    .transform((val) => val.toLowerCase()),
+    .optional()
+    .transform((val) => (val ? val.toLowerCase() : crypto.randomUUID())),
   name: z.string().min(1).max(100).optional(),
   location: z.string().min(1, 'location cannot be empty').max(150, 'location too long'),
   ipAddress: z.string().optional(),

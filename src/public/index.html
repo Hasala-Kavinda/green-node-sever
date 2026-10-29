@@ -19,7 +19,7 @@
 <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans selection:bg-emerald-500 selection:text-white">
 
   <!-- Header -->
-  <header class="border-b border-slate-800 bg-slate-900/60 backdrop-blur sticky top-0 z-50 px-6 py-4">
+  <header class="border-b border-slate-800 bg-slate-900/60 backdrop-blur sticky top-0 z-40 px-6 py-4">
     <div class="max-w-7xl mx-auto flex flex-wrap justify-between items-center gap-4">
       <div class="flex items-center space-x-3">
         <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">
@@ -33,27 +33,36 @@
         </div>
       </div>
 
-      <div class="flex items-center space-x-3">
-        <!-- WS Connection Badge -->
-        <div id="wsBadge" class="flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
-          <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
-          <span id="wsStatusText">Connecting WS...</span>
-        </div>
+      <div class="flex flex-wrap items-center gap-2.5">
+        <!-- Register ESP Button -->
+        <button onclick="openRegisterModal()" class="px-3.5 py-1.5 bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-400 hover:to-emerald-500 text-white rounded-lg text-xs font-bold shadow-md shadow-emerald-600/30 transition flex items-center space-x-2">
+          <i class="fa-solid fa-microchip"></i>
+          <span>+ Register ESP Node</span>
+        </button>
 
-        <button onclick="checkEspHealth()" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold shadow-md shadow-blue-600/30 transition flex items-center space-x-1.5">
+        <!-- Check ESP Liveness -->
+        <button onclick="checkEspHealth()" class="px-3 py-1.5 bg-blue-600/90 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold shadow-md shadow-blue-600/30 transition flex items-center space-x-1.5">
           <i class="fa-solid fa-signal"></i>
-          <span>Check ESP Liveness</span>
+          <span>Check Liveness</span>
         </button>
 
-        <button onclick="sendSampleReading()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shadow-md shadow-emerald-600/30 transition flex items-center space-x-1.5">
+        <!-- Test Reading -->
+        <button onclick="sendSampleReading()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold border border-slate-700 transition flex items-center space-x-1.5">
           <i class="fa-solid fa-paper-plane"></i>
-          <span>Send Test Reading</span>
+          <span>Send Test</span>
         </button>
 
+        <!-- API Docs -->
         <a href="/docs" target="_blank" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold border border-slate-700 transition flex items-center space-x-1.5">
           <i class="fa-solid fa-book-open"></i>
-          <span>API Docs</span>
+          <span>Docs</span>
         </a>
+
+        <!-- WS Badge -->
+        <div id="wsBadge" class="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
+          <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+          <span id="wsStatusText">WS...</span>
+        </div>
       </div>
     </div>
   </header>
@@ -61,12 +70,20 @@
   <!-- Main Content -->
   <main class="max-w-7xl mx-auto w-full px-6 py-8 flex-1 space-y-8">
     
-    <!-- Status / Info Bar -->
+    <!-- Status / Info Bar with Device Selector -->
     <div class="flex flex-wrap items-center justify-between gap-4 p-4 rounded-2xl bg-slate-900/50 border border-slate-800 text-sm">
       <div class="flex flex-wrap items-center gap-3">
-        <span class="text-slate-400 text-xs">Node UUID:</span>
-        <span id="currentDevice" class="font-mono text-xs px-2.5 py-1 rounded-md bg-slate-800 text-emerald-400 font-semibold border border-slate-700" title="Node UUID">
-          Waiting for telemetry...
+        <!-- Device Selector Dropdown -->
+        <div class="flex items-center space-x-2">
+          <label for="deviceSelect" class="text-slate-400 text-xs">Node:</label>
+          <select id="deviceSelect" onchange="onDeviceSelectChange(this.value)" class="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium cursor-pointer">
+            <option value="">Loading nodes...</option>
+          </select>
+        </div>
+
+        <!-- UUID Badge -->
+        <span id="currentDevice" class="font-mono text-xs px-2.5 py-1 rounded-md bg-slate-800/80 text-emerald-400 font-semibold border border-slate-700" title="Device UUID">
+          Waiting for selection...
         </span>
 
         <!-- Location Badge -->
@@ -94,8 +111,8 @@
       </div>
     </div>
 
-    <!-- ESP Liveness Modal / Notification Banner -->
-    <div id="espAlertBanner" class="hidden p-4 rounded-xl border transition-all text-xs flex justify-between items-center">
+    <!-- ESP Liveness Alert Banner -->
+    <div id="espAlertBanner" class="hidden p-4 rounded-xl border transition-all text-xs flex justify-between items-center shadow-lg">
       <div class="flex items-center space-x-3">
         <i id="espAlertIcon" class="text-base"></i>
         <div>
@@ -313,6 +330,142 @@
 
   </main>
 
+  <!-- ======================================================== -->
+  <!-- MODAL: Register New ESP Node Dialog                      -->
+  <!-- ======================================================== -->
+  <div id="registerModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+    <div class="relative w-full max-w-lg rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl p-6 space-y-6">
+      
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+        <div class="flex items-center space-x-3">
+          <div class="w-9 h-9 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center text-lg border border-emerald-500/20">
+            <i class="fa-solid fa-microchip"></i>
+          </div>
+          <div>
+            <h2 class="text-base font-bold text-slate-100">Register New ESP Node</h2>
+            <p class="text-xs text-slate-400">Install and link an ESP32 to this monitoring hub</p>
+          </div>
+        </div>
+        <button onclick="closeRegisterModal()" class="text-slate-400 hover:text-slate-200 text-lg transition">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <!-- Registration Form -->
+      <form id="regForm" onsubmit="handleRegisterSubmit(event)" class="space-y-4">
+        
+        <!-- Device Name -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1.5">
+            Node Friendly Name <span class="text-rose-400">*</span>
+          </label>
+          <input 
+            type="text" 
+            id="regName" 
+            required 
+            placeholder="e.g. Tomato Bed Sensor 1" 
+            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 transition"
+          />
+        </div>
+
+        <!-- Location -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1.5">
+            Physical Location / Zone <span class="text-rose-400">*</span>
+          </label>
+          <input 
+            type="text" 
+            id="regLocation" 
+            required 
+            placeholder="e.g. Greenhouse Bay 2 - Bed 4" 
+            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 transition"
+          />
+        </div>
+
+        <!-- Auto-Generated Device UUID -->
+        <div>
+          <div class="flex justify-between items-center mb-1.5">
+            <label class="text-xs font-semibold text-slate-300 flex items-center space-x-1.5">
+              <span>Auto-Generated Device ID (UUID)</span>
+              <span class="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded font-mono">DB Primary Key</span>
+            </label>
+            <button type="button" onclick="regenerateUUID()" class="text-[11px] text-teal-400 hover:text-teal-300 flex items-center space-x-1 transition">
+              <i class="fa-solid fa-arrows-rotate"></i>
+              <span>Generate New</span>
+            </button>
+          </div>
+          <div class="relative flex items-center">
+            <input 
+              type="text" 
+              id="regUUID" 
+              readonly 
+              class="w-full bg-slate-950 border border-slate-800 font-mono text-emerald-400 text-xs rounded-xl pl-3.5 pr-20 py-2.5 focus:outline-none border-emerald-500/30 font-semibold selection:bg-emerald-500 selection:text-white"
+            />
+            <button type="button" onclick="copyUUIDFromInput()" class="absolute right-2 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-medium transition flex items-center space-x-1">
+              <i class="fa-regular fa-copy"></i>
+              <span id="copyUUIDBtnText">Copy</span>
+            </button>
+          </div>
+          <p class="text-[11px] text-slate-500 mt-1">This unique UUID will be saved in MongoDB to track this specific ESP node.</p>
+        </div>
+
+        <!-- Optional IP Address -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1.5">
+            ESP Local IP Address <span class="text-slate-500 text-[11px] font-normal">(Optional for active ping probing)</span>
+          </label>
+          <input 
+            type="text" 
+            id="regIp" 
+            placeholder="e.g. 192.168.1.75 (leave blank to auto-detect on first ping)" 
+            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 transition"
+          />
+        </div>
+
+        <!-- Submit Button -->
+        <div class="pt-2 flex justify-end space-x-3">
+          <button type="button" onclick="closeRegisterModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition">
+            Cancel
+          </button>
+          <button type="submit" id="regSubmitBtn" class="px-5 py-2 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white rounded-xl text-xs font-bold shadow-lg shadow-emerald-600/30 transition flex items-center space-x-2">
+            <i class="fa-solid fa-cloud-arrow-up"></i>
+            <span>Register & Save in Database</span>
+          </button>
+        </div>
+
+      </form>
+
+      <!-- Success State (Shown after save) -->
+      <div id="regSuccessView" class="hidden space-y-4 pt-2">
+        <div class="p-4 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-center space-y-2">
+          <div class="w-12 h-12 mx-auto rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xl shadow-inner">
+            <i class="fa-solid fa-check"></i>
+          </div>
+          <h3 class="text-sm font-bold text-emerald-300">ESP Node Successfully Registered!</h3>
+          <p class="text-xs text-slate-300">Saved to MongoDB database with physical location.</p>
+        </div>
+
+        <!-- Ready to copy C++ snippet -->
+        <div class="space-y-1.5">
+          <label class="text-[11px] font-semibold text-slate-400">Copy this line into your ESP32 Arduino code:</label>
+          <div class="relative bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs font-mono text-emerald-400 flex justify-between items-center">
+            <span id="arduinoSnippetCode" class="break-all">const char* DEVICE_ID = "...";</span>
+            <button onclick="copySnippet()" class="ml-2 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-xs transition flex items-center space-x-1 shrink-0">
+              <i class="fa-solid fa-copy"></i>
+              <span id="copySnippetBtnText">Copy</span>
+            </button>
+          </div>
+        </div>
+
+        <button onclick="completeRegistration()" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/30 transition">
+          Done & Monitor This Node
+        </button>
+      </div>
+
+    </div>
+  </div>
+
   <!-- Footer -->
   <footer class="border-t border-slate-800/80 bg-slate-950 py-4 px-6 text-center text-xs text-slate-500">
     Green Node IoT System • UUID Tracked • Node.js, Express, TypeScript, Mongoose, WebSockets • 2026
@@ -322,26 +475,150 @@
   <script>
     let socket = null;
     let totalPackets = 0;
+    let registeredDevices = [];
     let activeDeviceId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
 
-    // Pre-register demo device location
-    async function ensureDemoDeviceRegistered() {
+    // --- Modal Logic ---
+    function openRegisterModal() {
+      document.getElementById('regForm').classList.remove('hidden');
+      document.getElementById('regSuccessView').classList.add('hidden');
+      document.getElementById('regName').value = '';
+      document.getElementById('regLocation').value = '';
+      document.getElementById('regIp').value = '';
+      regenerateUUID();
+      document.getElementById('registerModal').classList.remove('hidden');
+    }
+
+    function closeRegisterModal() {
+      document.getElementById('registerModal').classList.add('hidden');
+    }
+
+    function regenerateUUID() {
+      const newUuid = crypto.randomUUID();
+      document.getElementById('regUUID').value = newUuid;
+    }
+
+    function copyUUIDFromInput() {
+      const uuid = document.getElementById('regUUID').value;
+      navigator.clipboard.writeText(uuid);
+      const btnText = document.getElementById('copyUUIDBtnText');
+      btnText.textContent = 'Copied!';
+      setTimeout(() => { btnText.textContent = 'Copy'; }, 2000);
+    }
+
+    function copySnippet() {
+      const code = document.getElementById('arduinoSnippetCode').textContent;
+      navigator.clipboard.writeText(code);
+      const btnText = document.getElementById('copySnippetBtnText');
+      btnText.textContent = 'Copied!';
+      setTimeout(() => { btnText.textContent = 'Copy'; }, 2000);
+    }
+
+    async function handleRegisterSubmit(e) {
+      e.preventDefault();
+      const submitBtn = document.getElementById('regSubmitBtn');
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Saving...';
+
+      const deviceId = document.getElementById('regUUID').value.trim();
+      const name = document.getElementById('regName').value.trim();
+      const location = document.getElementById('regLocation').value.trim();
+      const ipAddress = document.getElementById('regIp').value.trim() || undefined;
+
+      const payload = { deviceId, name, location };
+      if (ipAddress) payload.ipAddress = ipAddress;
+
       try {
-        await fetch('/api/devices', {
+        const res = await fetch('/api/devices', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            deviceId: activeDeviceId,
-            name: 'North Greenhouse Node',
-            location: 'Greenhouse Bay 1 - Tomatoes'
-          })
+          body: JSON.stringify(payload)
         });
-      } catch (e) {
-        // Ignored
+
+        const json = await res.json();
+        if (res.ok && json.success) {
+          // Show success view
+          document.getElementById('regForm').classList.add('hidden');
+          document.getElementById('arduinoSnippetCode').textContent = `const char* DEVICE_ID = "${deviceId}";`;
+          document.getElementById('regSuccessView').classList.remove('hidden');
+          
+          activeDeviceId = deviceId;
+          await loadDevicesList();
+        } else {
+          alert('Failed to register: ' + (json.error || 'Unknown error'));
+        }
+      } catch (err) {
+        alert('Registration error: ' + err.message);
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up mr-1"></i> Register & Save in Database';
       }
     }
 
-    // Connect WebSocket
+    function completeRegistration() {
+      closeRegisterModal();
+      onDeviceSelectChange(activeDeviceId);
+    }
+
+    // --- Device Selector & Loading ---
+    async function loadDevicesList() {
+      try {
+        const res = await fetch('/api/devices');
+        if (res.ok) {
+          const json = await res.json();
+          if (json.data && Array.isArray(json.data)) {
+            registeredDevices = json.data;
+            const select = document.getElementById('deviceSelect');
+            select.innerHTML = '';
+
+            if (registeredDevices.length === 0) {
+              const opt = document.createElement('option');
+              opt.value = '';
+              opt.textContent = 'No nodes registered yet';
+              select.appendChild(opt);
+              return;
+            }
+
+            registeredDevices.forEach((dev) => {
+              const opt = document.createElement('option');
+              opt.value = dev.deviceId;
+              const statusDot = dev.isOnline ? '🟢' : '🔴';
+              opt.textContent = `${statusDot} ${dev.name || 'Node'} (${dev.location || 'No Location'})`;
+              if (dev.deviceId === activeDeviceId) {
+                opt.selected = true;
+              }
+              select.appendChild(opt);
+            });
+
+            // Update UI with active device metadata
+            updateActiveDeviceUI();
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load device list:', err);
+      }
+    }
+
+    function onDeviceSelectChange(newDeviceId) {
+      if (!newDeviceId) return;
+      activeDeviceId = newDeviceId;
+      updateActiveDeviceUI();
+      fetchInitial();
+      checkEspHealth();
+    }
+
+    function updateActiveDeviceUI() {
+      const current = registeredDevices.find(d => d.deviceId === activeDeviceId);
+      if (current) {
+        document.getElementById('currentDevice').textContent = current.deviceId;
+        document.getElementById('currentLocation').textContent = current.location || 'Unassigned Zone';
+        updateEspLivenessBadge(current.isOnline, current.isOnline ? 'ESP: ON (Active)' : 'ESP: OFF');
+      } else {
+        document.getElementById('currentDevice').textContent = activeDeviceId;
+      }
+    }
+
+    // --- WebSocket Logic ---
     function connectWS() {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = `${protocol}//${window.location.host}/ws`;
@@ -352,8 +629,8 @@
       socket = new WebSocket(wsUrl);
 
       socket.onopen = () => {
-        wsBadge.className = 'flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
-        wsStatusText.textContent = 'WS Connected';
+        wsBadge.className = 'flex items-center space-x-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+        wsStatusText.textContent = 'WS Live';
       };
 
       socket.onmessage = (event) => {
@@ -364,7 +641,9 @@
           } else if (payload.event === 'batch_readings' && payload.data?.latest) {
             handleNewReading(payload.data.latest);
           } else if (payload.event === 'device_heartbeat' && payload.data) {
-            updateEspLivenessBadge(true, 'ESP Online (Heartbeat Received)');
+            if (payload.data.deviceId === activeDeviceId) {
+              updateEspLivenessBadge(true, 'ESP: ON (Heartbeat Received)');
+            }
           }
         } catch (e) {
           console.error('Error parsing WS message:', e);
@@ -372,7 +651,7 @@
       };
 
       socket.onclose = () => {
-        wsBadge.className = 'flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20';
+        wsBadge.className = 'flex items-center space-x-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20';
         wsStatusText.textContent = 'WS Disconnected';
         setTimeout(connectWS, 3000);
       };
@@ -382,7 +661,6 @@
       };
     }
 
-    // Update ESP liveness badge
     function updateEspLivenessBadge(isOnline, text) {
       const badge = document.getElementById('espStatusBadge');
       const dot = document.getElementById('espDot');
@@ -399,14 +677,13 @@
       }
     }
 
-    // Active Health Check function
     async function checkEspHealth() {
       const banner = document.getElementById('espAlertBanner');
       const title = document.getElementById('espAlertTitle');
       const details = document.getElementById('espAlertDetails');
       const icon = document.getElementById('espAlertIcon');
 
-      banner.className = 'p-4 rounded-xl border bg-slate-900 border-blue-500/40 text-blue-300 text-xs flex justify-between items-center';
+      banner.className = 'p-4 rounded-xl border bg-slate-900 border-blue-500/40 text-blue-300 text-xs flex justify-between items-center shadow-lg';
       title.textContent = 'Querying ESP health & liveness status...';
       details.textContent = `Target Node UUID: ${activeDeviceId}`;
       icon.className = 'fa-solid fa-spinner fa-spin text-blue-400 text-lg';
@@ -419,89 +696,84 @@
         if (json.success && json.data) {
           const d = json.data;
           if (d.isOnline) {
-            banner.className = 'p-4 rounded-xl border bg-emerald-950/40 border-emerald-500/30 text-emerald-300 text-xs flex justify-between items-center';
+            banner.className = 'p-4 rounded-xl border bg-emerald-950/40 border-emerald-500/30 text-emerald-300 text-xs flex justify-between items-center shadow-lg';
             title.textContent = `✅ ESP Node is ON & Transmitting`;
             details.textContent = `Status: ${d.status.toUpperCase()} • Last seen: ${d.secondsSinceLastSeen}s ago • Location: "${d.location}" • IP: ${d.ipAddress || 'Auto-Detected'}`;
             icon.className = 'fa-solid fa-circle-check text-emerald-400 text-lg';
             updateEspLivenessBadge(true, `ESP: ON (${d.secondsSinceLastSeen}s ago)`);
           } else {
-            banner.className = 'p-4 rounded-xl border bg-rose-950/40 border-rose-500/30 text-rose-300 text-xs flex justify-between items-center';
+            banner.className = 'p-4 rounded-xl border bg-rose-950/40 border-rose-500/30 text-rose-300 text-xs flex justify-between items-center shadow-lg';
             title.textContent = `⚠️ ESP Node is OFF or Unreachable`;
-            details.textContent = `Status: ${d.status.toUpperCase()} • Last seen: ${d.secondsSinceLastSeen}s ago (> ${d.timeoutThresholdSeconds}s timeout). Check power and WiFi connection.`;
+            details.textContent = `Status: ${d.status.toUpperCase()} • Last seen: ${d.secondsSinceLastSeen}s ago (> ${d.timeoutThresholdSeconds}s timeout). Check power and WiFi.`;
             icon.className = 'fa-solid fa-circle-exclamation text-rose-400 text-lg';
             updateEspLivenessBadge(false, 'ESP: OFF / Unreachable');
           }
         }
       } catch (err) {
-        banner.className = 'p-4 rounded-xl border bg-rose-950/40 border-rose-500/30 text-rose-300 text-xs flex justify-between items-center';
+        banner.className = 'p-4 rounded-xl border bg-rose-950/40 border-rose-500/30 text-rose-300 text-xs flex justify-between items-center shadow-lg';
         title.textContent = 'Error checking ESP status';
         details.textContent = err.message;
         icon.className = 'fa-solid fa-circle-xmark text-rose-400 text-lg';
       }
     }
 
-    // Process reading
     function handleNewReading(reading) {
       totalPackets++;
       document.getElementById('readingsCount').textContent = totalPackets;
 
-      if (reading.deviceId) {
-        activeDeviceId = reading.deviceId;
-      }
+      if (reading.deviceId === activeDeviceId) {
+        document.getElementById('currentDevice').textContent = reading.deviceId;
+        document.getElementById('currentLocation').textContent = reading.deviceLocation || 'Location: Registered in DB';
+        document.getElementById('lastUpdated').textContent = new Date(reading.timestamp || Date.now()).toLocaleTimeString();
+        updateEspLivenessBadge(true, 'ESP: ON (Active)');
 
-      document.getElementById('currentDevice').textContent = reading.deviceId || 'Unknown';
-      document.getElementById('currentLocation').textContent = reading.deviceLocation || 'Location: Registered in DB';
-      document.getElementById('lastUpdated').textContent = new Date(reading.timestamp || Date.now()).toLocaleTimeString();
+        // Temperature
+        document.getElementById('valTemp').textContent = Number(reading.temperature).toFixed(1);
+        const tempF = (reading.temperature * 9/5 + 32).toFixed(1);
+        document.getElementById('valTempF').textContent = `${tempF} °F`;
 
-      // Whenever reading arrives, ESP is definitely ON
-      updateEspLivenessBadge(true, 'ESP: ON (Active)');
+        const statusTemp = document.getElementById('statusTemp');
+        if (reading.temperature < 15) {
+          statusTemp.textContent = 'Cool';
+          statusTemp.className = 'px-2 py-0.5 rounded text-[10px] font-semibold bg-cyan-500/20 text-cyan-300';
+        } else if (reading.temperature > 32) {
+          statusTemp.textContent = 'Hot';
+          statusTemp.className = 'px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-500/20 text-rose-300';
+        } else {
+          statusTemp.textContent = 'Ideal';
+          statusTemp.className = 'px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-300';
+        }
 
-      // Temperature
-      document.getElementById('valTemp').textContent = Number(reading.temperature).toFixed(1);
-      const tempF = (reading.temperature * 9/5 + 32).toFixed(1);
-      document.getElementById('valTempF').textContent = `${tempF} °F`;
+        // Humidity
+        document.getElementById('valHum').textContent = Number(reading.humidity).toFixed(1);
+        document.getElementById('barHum').style.width = `${Math.min(100, Math.max(0, reading.humidity))}%`;
 
-      const statusTemp = document.getElementById('statusTemp');
-      if (reading.temperature < 15) {
-        statusTemp.textContent = 'Cool';
-        statusTemp.className = 'px-2 py-0.5 rounded text-[10px] font-semibold bg-cyan-500/20 text-cyan-300';
-      } else if (reading.temperature > 32) {
-        statusTemp.textContent = 'Hot';
-        statusTemp.className = 'px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-500/20 text-rose-300';
-      } else {
-        statusTemp.textContent = 'Ideal';
-        statusTemp.className = 'px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-300';
-      }
+        // Soil Moisture
+        document.getElementById('valSoil').textContent = Number(reading.soilMoisture).toFixed(1);
+        const statusSoil = document.getElementById('statusSoil');
+        if (reading.soilMoisture < 25) {
+          statusSoil.textContent = 'Dry (Needs Water)';
+          statusSoil.className = 'px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-300';
+        } else if (reading.soilMoisture > 75) {
+          statusSoil.textContent = 'Saturated';
+          statusSoil.className = 'px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-500/20 text-blue-300';
+        } else {
+          statusSoil.textContent = 'Optimal Moisture';
+          statusSoil.className = 'px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-300';
+        }
 
-      // Humidity
-      document.getElementById('valHum').textContent = Number(reading.humidity).toFixed(1);
-      document.getElementById('barHum').style.width = `${Math.min(100, Math.max(0, reading.humidity))}%`;
-
-      // Soil Moisture
-      document.getElementById('valSoil').textContent = Number(reading.soilMoisture).toFixed(1);
-      const statusSoil = document.getElementById('statusSoil');
-      if (reading.soilMoisture < 25) {
-        statusSoil.textContent = 'Dry (Needs Water)';
-        statusSoil.className = 'px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-300';
-      } else if (reading.soilMoisture > 75) {
-        statusSoil.textContent = 'Saturated';
-        statusSoil.className = 'px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-500/20 text-blue-300';
-      } else {
-        statusSoil.textContent = 'Optimal Moisture';
-        statusSoil.className = 'px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-300';
-      }
-
-      // Light
-      document.getElementById('valLight').textContent = Math.round(reading.light);
-      const lightPct = Math.min(100, (reading.light / 1000) * 100);
-      document.getElementById('barLight').style.width = `${lightPct}%`;
-      const statusLightText = document.getElementById('statusLightText');
-      if (reading.light < 100) {
-        statusLightText.textContent = 'Night / Low Light';
-      } else if (reading.light > 800) {
-        statusLightText.textContent = 'Direct Sunlight / High';
-      } else {
-        statusLightText.textContent = 'Moderate Ambient';
+        // Light
+        document.getElementById('valLight').textContent = Math.round(reading.light);
+        const lightPct = Math.min(100, (reading.light / 1000) * 100);
+        document.getElementById('barLight').style.width = `${lightPct}%`;
+        const statusLightText = document.getElementById('statusLightText');
+        if (reading.light < 100) {
+          statusLightText.textContent = 'Night / Low Light';
+        } else if (reading.light > 800) {
+          statusLightText.textContent = 'Direct Sunlight / High';
+        } else {
+          statusLightText.textContent = 'Moderate Ambient';
+        }
       }
 
       addTableRow(reading);
@@ -552,7 +824,7 @@
 
     async function fetchInitial() {
       try {
-        const res = await fetch('/api/readings/latest');
+        const res = await fetch(`/api/readings/latest?deviceId=${activeDeviceId}`);
         if (res.ok) {
           const json = await res.json();
           if (json.data) {
@@ -563,12 +835,11 @@
         console.error('Failed to fetch initial latest reading:', err);
       }
       fetchStats();
-      checkEspHealth();
     }
 
     async function fetchStats() {
       try {
-        const res = await fetch('/api/readings/stats?hours=24');
+        const res = await fetch(`/api/readings/stats?hours=24&deviceId=${activeDeviceId}`);
         if (res.ok) {
           const json = await res.json();
           if (json.data && json.data.totalReadings > 0) {
@@ -592,7 +863,6 @@
       }
     }
 
-    // Send sample reading test
     async function sendSampleReading() {
       const temp = +(20 + Math.random() * 10).toFixed(1);
       const hum = +(50 + Math.random() * 25).toFixed(1);
@@ -621,12 +891,12 @@
       }
     }
 
-    // Start
-    ensureDemoDeviceRegistered();
+    // Startup
+    loadDevicesList();
     connectWS();
     fetchInitial();
     setInterval(fetchStats, 60000);
-    setInterval(checkEspHealth, 30000); // Check ESP liveness every 30s
+    setInterval(checkEspHealth, 30000);
   </script>
 </body>
 </html>
