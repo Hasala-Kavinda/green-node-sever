@@ -6,10 +6,9 @@
 #include <BH1750.h>
 
 // --- Pin Assignments for ESP32-C3N SuperMini ---
-// 1. Soil Moisture (ADC1 Pins - Conflict-free with WiFi & I2C)
+// 1. Soil Moisture (Single Reference Sensor - ADC1_CH0)
 const int PIN_SOIL_MD0869_AO                       = 0;       // GPIO0 (ADC1_CH0) -> MD0869 Reference Soil Sensor
-const int PIN_SOIL_FC28_AO                         = 1;       // GPIO1 (ADC1_CH1) -> FC-28 Secondary Sensor
-const int PIN_SOIL_POWER_GATE                      = 2;       // GPIO2 -> Shared VCC Power-Gating Pin
+const int PIN_SOIL_POWER_GATE                      = 2;       // GPIO2 -> VCC Power-Gating Pin
 
 // 2. DHT22 Temperature & Humidity (Digital Single-Wire Bus)
 const int PIN_DHT_DATA                             = 3;       // GPIO3 -> DHT22 Digital Data Pin
@@ -27,7 +26,7 @@ const unsigned long SOIL_SETTLE_MS                 = 80;      // MD0869 settle t
 const unsigned long SOIL_RESET_MS                  = 120;     // Probe discharge time after power-off
 const unsigned long TERMINAL_REFRESH_DELAY_MS      = 5000;    // 5-second interval between dashboard updates
 
-// --- Calibration Endpoints for Soil Moisture ---
+// --- Calibration Endpoints for MD0869 Soil Moisture ---
 const int MD0869_DRY_RAW_ADC                       = 400;     // Dry air baseline (0%)
 const int MD0869_WET_RAW_ADC                       = 4058;    // Water saturation baseline (100%)
 const int SOIL_ADC_SAMPLES                         = 16;      // ADC oversampling filter count
@@ -95,7 +94,7 @@ void setup() {
     pinMode(PIN_SOIL_POWER_GATE, OUTPUT);
     digitalWrite(PIN_SOIL_POWER_GATE, LOW);
 
-    // Initialize ADC
+    // Initialize ADC (12-bit, 11dB attenuation)
     analogReadResolution(12);
     analogSetAttenuation(ADC_11db);
 
@@ -111,7 +110,6 @@ void setup() {
     Serial.println("======================================================================");
     Serial.println("PIN MAPPING:");
     Serial.println("  • MD0869 Soil Moisture (Ref) : GPIO 0 (ADC1_CH0)");
-    Serial.println("  • FC-28 Soil Moisture (Aux)  : GPIO 1 (ADC1_CH1)");
     Serial.println("  • Soil VCC Power Gate        : GPIO 2");
     Serial.println("  • DHT22 Temp & Humidity      : GPIO 3");
     Serial.println("  • BH1750 I2C Data (SDA)      : GPIO 5");
@@ -125,7 +123,6 @@ void setup() {
     Serial.println(" ms (5 sec)");
     Serial.println("======================================================================\n");
 
-    // Settle sensors
     delay(200);
 }
 
@@ -136,18 +133,17 @@ void setup() {
 
 void loop() {
     // ------------------------------------------------------------------------
-    // Step 1: Read Soil Moisture (Gated Power Cycle)
+    // Step 1: Read Soil Moisture (MD0869 Gated Power Cycle)
     // ------------------------------------------------------------------------
     digitalWrite(PIN_SOIL_POWER_GATE, HIGH); // Turn power ON
     delay(SOIL_SETTLE_MS);
 
-    int soilMdRaw = readSoilAdcAveraged(PIN_SOIL_MD0869_AO);
-    int soilFcRaw = readSoilAdcAveraged(PIN_SOIL_FC28_AO);
+    int soilRaw = readSoilAdcAveraged(PIN_SOIL_MD0869_AO);
 
     digitalWrite(PIN_SOIL_POWER_GATE, LOW);  // Turn power OFF
     delay(SOIL_RESET_MS);
 
-    float soilMdPct = calculateMoisturePercent(soilMdRaw);
+    float soilPct = calculateMoisturePercent(soilRaw);
 
     // ------------------------------------------------------------------------
     // Step 2: Read DHT22 (Temperature & Humidity)
@@ -174,8 +170,7 @@ void loop() {
     Serial.println("┌─────────────────────────── TELEMETRY REPORT ───────────────────────────┐");
 
     // Soil Moisture section
-    Serial.printf("│ 🌱 Soil Moisture (MD0869) : %5.1f %%  (Raw ADC: %4d / 4095)              │\n", soilMdPct, soilMdRaw);
-    Serial.printf("│ 🌾 Soil Moisture (FC-28)  : Raw ADC: %4d                               │\n", soilFcRaw);
+    Serial.printf("│ 🌱 Soil Moisture (MD0869) : %5.1f %%  (Raw ADC: %4d / 4095)              │\n", soilPct, soilRaw);
 
     // Temperature & Humidity section
     if (dhtValid) {
