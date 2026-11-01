@@ -155,8 +155,11 @@ esp code/
 │   ├── bh1750/                                <-- BH1750 Ambient Light standalone test
 │   │   ├── bh1750.ino
 │   │   └── pin_diagram.md
-│   └── wifi_module_test/                      <-- Built-in 2.4GHz Wi-Fi transceiver test
-│       ├── wifi_module_test.ino
+│   ├── wifi_module_test/                      <-- Built-in 2.4GHz Wi-Fi transceiver test
+│   │   ├── wifi_module_test.ino
+│   │   └── pin_diagram.md
+│   └── internal_temperature/                  <-- On-die silicon junction temperature test
+│       ├── internal_temperature.ino
 │       └── pin_diagram.md
 │
 ├── integrated_test/                           <-- Single-sensor hardware integration test
