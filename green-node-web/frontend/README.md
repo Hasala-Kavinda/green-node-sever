@@ -1,41 +1,53 @@
-# 🌿 Green Node - Frontend Dashboard
+# 🌿 Green Node - Next.js Telemetry Frontend
 
-Real-time IoT monitoring dashboard for greenhouse environment and soil telemetry.
+A modern, Apple-inspired Next.js application for real-time greenhouse and environmental monitoring with authentication.
 
 ---
 
-## 🚀 Features
-* **Real-time WebSocket Live Feed**: Instant push updates for sensor ingestion and device heartbeats.
-* **Interactive Sensor Charts**: Visual 24-hour trends for temperature, humidity, soil moisture, and ambient light (Lux).
-* **ESP32 Liveness & Device Hub**: Track physical device online/offline states, latency ping, and device registration.
-* **Cross-Origin & Cloud Ready**: Runs standalone or deploys instantly to **Vercel**, **Netlify**, or **Render Static Sites**.
+## 🔐 Authentication
+* **Login Route**: `/login`
+* **Protected Dashboard**: `/`
+* **Default Credentials**:
+  * **Username**: `admin`
+  * **Password**: `admin`
 
 ---
 
 ## 🛠️ Local Development
 
-Open `index.html` directly in any web browser:
-* Double-click `index.html` or run with VS Code Live Server / `npx serve .`.
-* By default, it connects to local backend `http://localhost:4000`.
+```bash
+# Navigate to frontend
+cd green-node-web/frontend
+
+# Install dependencies (if not already installed)
+npm install
+
+# Start Next.js development server on port 3000
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
-## ☁️ Deployment (Vercel / Render Static Site)
+## ☁️ Deployment on Vercel
 
-### Deploying to Vercel
-1. In Vercel, import the repository and set the **Root Directory** to `green-node-web/frontend`.
-2. Framework Preset: **Other**.
-3. Deploy!
+1. Push your repository to GitHub.
+2. In the **Vercel Dashboard**, click **New Project** and select this repository.
+3. Configure the project:
+   * **Framework Preset**: `Next.js`
+   * **Root Directory**: `green-node-web/frontend`
+4. Set Environment Variables (Optional):
+   * `NEXT_PUBLIC_API_URL`: Your Render backend URL (e.g. `https://your-backend.onrender.com`).
+   * *Note*: If not provided during build, you can also change the backend URL directly in the web UI using the top-right Settings icon (`⚙️`).
+5. Click **Deploy**.
 
-### Pointing to your Remote Backend (e.g. Render)
-You can point the frontend to your remote backend in one of two easy ways:
-1. **URL Query Parameter**:
-   Append `?api=https://your-backend-app.onrender.com` when opening the site (saved automatically in localStorage).
-   ```text
-   https://green-node-dashboard.vercel.app/?api=https://your-backend-app.onrender.com
-   ```
-2. **Browser LocalStorage**:
-   Open browser DevTools Console and run:
-   ```js
-   localStorage.setItem('green_node_api_url', 'https://your-backend-app.onrender.com');
-   ```
+---
+
+## 📦 Tech Stack
+* **Framework**: Next.js 14 (App Router)
+* **Language**: TypeScript
+* **Styling**: Tailwind CSS (Apple-style dark mode palette)
+* **Icons**: Lucide React
+* **Charts**: Chart.js & React-Chartjs-2
+* **Real-Time Feed**: Native WebSockets (`/ws`)
