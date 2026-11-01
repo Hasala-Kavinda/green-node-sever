@@ -152,8 +152,11 @@ esp code/
 │   ├── dht22/                                 <-- DHT22 Temp & Humidity standalone test
 │   │   ├── dht22.ino
 │   │   └── pin_diagram.md
-│   └── bh1750/                                <-- BH1750 Ambient Light standalone test
-│       ├── bh1750.ino
+│   ├── bh1750/                                <-- BH1750 Ambient Light standalone test
+│   │   ├── bh1750.ino
+│   │   └── pin_diagram.md
+│   └── wifi_module_test/                      <-- Built-in 2.4GHz Wi-Fi transceiver test
+│       ├── wifi_module_test.ino
 │       └── pin_diagram.md
 │
 ├── integrated_test/                           <-- Single-sensor hardware integration test
@@ -161,16 +164,12 @@ esp code/
 │   ├── integrated_test.ino                    <-- All-in-one local test sketch (no WiFi required)
 │   └── pin_diagram.md                         <-- Hardware pin diagram
 │
-├── final_code/                                <-- Production single-sensor integration firmware
-│   ├── README.md                              <-- Comprehensive guide & edition comparison
-│   ├── md0869_integration/                   <-- Final code for MD0869 reference soil probe
-│   │   └── md0869_integration.ino
-│   └── fc28_integration/                     <-- Final code for FC-28 standard soil probe
-│       └── fc28_integration.ino
-│
-└── esp_code/                                  <-- Full wireless telemetry & HTTP health probe
-    ├── README.md                              <-- WiFi & server endpoint documentation
-    └── esp_code.ino                           <-- Production wireless IoT telemetry firmware
+└── final_code/                                <-- Production single-sensor integration firmware
+    ├── README.md                              <-- Comprehensive guide & edition comparison
+    ├── md0869_integration/                   <-- Final code for MD0869 reference soil probe
+    │   └── md0869_integration.ino
+    └── fc28_integration/                     <-- Final code for FC-28 standard soil probe
+        └── fc28_integration.ino
 ```
 
 ---

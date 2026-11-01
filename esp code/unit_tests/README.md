@@ -21,6 +21,7 @@ Testing components individually ensures that:
 | **[`soil_moisture_fc28/`](./soil_moisture_fc28/)** | FC-28 Secondary Probe | Standalone standard soil moisture (%) | `GPIO 1` (AO), `GPIO 2` (VCC Gate) |
 | **[`dht22/`](./dht22/)** | DHT22 / AM2302 | Ambient temperature (°C) & humidity (% RH) | `GPIO 3` (Digital Data) |
 | **[`bh1750/`](./bh1750/)** | BH1750 | Ambient illuminance (Lux / lx) | `GPIO 5` (SDA), `GPIO 6` (SCL) |
+| **[`wifi_module_test/`](./wifi_module_test/)** | Built-in Wi-Fi Transceiver | 2.4 GHz Network Connectivity, RSSI, DHCP | Internal RF Antenna (No pins) |
 
 ---
 
