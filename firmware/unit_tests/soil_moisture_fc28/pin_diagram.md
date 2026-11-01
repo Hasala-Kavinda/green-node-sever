@@ -35,6 +35,10 @@ Power Gate --│ GPIO 2              6 │--
 ## ⚙️ Calibration Reference
 * **Air (0% Moisture)**: Raw ADC $\approx 400$
 * **Water / Saturated Soil (100% Moisture)**: Raw ADC $\approx 4095$
+* **Linear Calibration Formula**: $y = ax + b$
+  * **Slope constant `a` (`FC28_CAL_A`)**: Initial value = `0.0` (User-configurable constant)
+  * **Intercept / Offset constant `b` (`FC28_CAL_B`)**: Initial value = `0.0` (User-configurable constant)
+  * *Note*: When both `a` and `b` are at the initial condition `0.0`, raw ADC is passed through as uncalibrated baseline. Once calibrated parameters are determined, update `FC28_CAL_A` and `FC28_CAL_B` at their declaration in `soil_moisture_fc28.ino`.
 * **Settle Time**: 20 ms
 * **Reset / Discharge Time**: 40 ms
 

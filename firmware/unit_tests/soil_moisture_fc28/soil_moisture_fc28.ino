@@ -15,6 +15,13 @@ const unsigned long TERMINAL_REFRESH_DELAY_MS      = 5000;    // 5-second (5000m
 const int FC28_DRY_RAW_ADC                         = 400;     // FC-28 raw ADC in dry air (0% moisture)
 const int FC28_WET_RAW_ADC                         = 4095;    // FC-28 raw ADC in wet soil/water (100% moisture)
 
+// --- User-Adjustable Linear Calibration Constants (y = ax + b) ---
+// ⚠️ USER ACTION REQUIRED:
+// Set your linear calibration constants 'a' (slope/gain) and 'b' (intercept/offset) here.
+// Initial default condition is 0.0. When declared, update these constants with your calibrated values.
+const float FC28_CAL_A                             = 0.0f;    // Linear calibration slope 'a' (User adjustable)
+const float FC28_CAL_B                             = 0.0f;    // Linear calibration intercept 'b' (User adjustable)
+
 // --- Sampling Filter Configuration ---
 const int SOIL_ADC_SAMPLES                         = 16;      // Number of ADC samples averaged per read
 
@@ -40,10 +47,24 @@ int readSoilSensorADC(int analogPin) {
     return (int)(sum / SOIL_ADC_SAMPLES);
 }
 
-// Converts raw ADC reading to moisture percentage (0.0% to 100.0%)
-float calculateSoilMoisturePercent(int rawAdc) {
+// Calibrates raw ADC reading using linear function: y = ax + b
+// If a and b are both 0.0f (initial condition before user configuration),
+// raw ADC is returned unscaled to preserve baseline operation.
+// When user configures 'a' and 'b', the calibrated value (a * rawAdc + b) is clamped to [0, 4095].
+float calibrateSoilMoisture(int rawAdc, float a, float b) {
+    if (a == 0.0f && b == 0.0f) {
+        return (float)rawAdc; // Initial condition: return unscaled raw ADC
+    }
+    float calibrated = (a * (float)rawAdc) + b;
+    if (calibrated < 0.0f)    calibrated = 0.0f;
+    if (calibrated > 4095.0f) calibrated = 4095.0f;
+    return calibrated;
+}
+
+// Converts ADC reading (raw or calibrated) to moisture percentage (0.0% to 100.0%)
+float calculateSoilMoisturePercent(float adcValue) {
     float span = (float)(FC28_WET_RAW_ADC - FC28_DRY_RAW_ADC);
-    float percent = (((float)rawAdc - (float)FC28_DRY_RAW_ADC) / span) * 100.0f;
+    float percent = ((adcValue - (float)FC28_DRY_RAW_ADC) / span) * 100.0f;
 
     if (percent < 0.0f)   percent = 0.0f;
     if (percent > 100.0f) percent = 100.0f;
@@ -77,6 +98,13 @@ void setup() {
     Serial.print("Discharge Reset Time   : "); Serial.print(FC28_MIN_RESET_MS);  Serial.println(" ms");
     Serial.print("Calibrated Range (ADC) : Dry = "); Serial.print(FC28_DRY_RAW_ADC);
     Serial.print(" | Wet = "); Serial.println(FC28_WET_RAW_ADC);
+    Serial.print("Calibration Constants  : a = "); Serial.print(FC28_CAL_A, 4);
+    Serial.print(" | b = "); Serial.println(FC28_CAL_B, 4);
+    if (FC28_CAL_A == 0.0f && FC28_CAL_B == 0.0f) {
+        Serial.println("Calibration Status     : ⚠️ Initial state (a=0, b=0). Change constants when declaring.");
+    } else {
+        Serial.println("Calibration Status     : ✅ Linear calibration active (y = ax + b)");
+    }
     Serial.print("Terminal Refresh Gap   : "); Serial.print(TERMINAL_REFRESH_DELAY_MS); Serial.println(" ms (5 sec)");
     Serial.println("======================================================================");
 }
@@ -98,20 +126,26 @@ void loop() {
     digitalWrite(PIN_SOIL_POWER_GATE, LOW);
     delay(FC28_MIN_RESET_MS);
 
-    // 4. Calculate moisture percentage
-    float moisturePercent = calculateSoilMoisturePercent(soilRaw);
+    // 4. Calibrate raw ADC using linear transfer function: y = ax + b
+    float soilCalibrated = calibrateSoilMoisture(soilRaw, FC28_CAL_A, FC28_CAL_B);
 
-    // 5. Output report to Serial Monitor
+    // 5. Calculate moisture percentage using calibrated ADC
+    float moisturePercent = calculateSoilMoisturePercent(soilCalibrated);
+
+    // 6. Output report to Serial Monitor
     Serial.println("--- FC-28 SOIL MOISTURE READING ---");
-    Serial.print("FC-28 Raw ADC   : ");
+    Serial.print("FC-28 Raw ADC        : ");
     Serial.print(soilRaw);
-    Serial.print(" / 4095");
-    Serial.print(" | Moisture Level: ");
+    Serial.println(" / 4095");
+    Serial.print("FC-28 Calibrated ADC : ");
+    Serial.print(soilCalibrated, 1);
+    Serial.println(" / 4095");
+    Serial.print("Moisture Level       : ");
     Serial.print(moisturePercent, 2);
     Serial.println("%");
 
     // Diagnostic status indication
-    if (soilRaw <= FC28_DRY_RAW_ADC + 50) {
+    if (soilCalibrated <= FC28_DRY_RAW_ADC + 50) {
         Serial.println("Status: 🏜️ Dry Air / Sensor Probe Out of Soil");
     } else if (moisturePercent >= 75.0) {
         Serial.println("Status: 💧 High Moisture / Saturated Soil");
@@ -120,6 +154,6 @@ void loop() {
     }
     Serial.println();
 
-    // 6. Wait before next cycle
+    // 7. Wait before next cycle
     delay(TERMINAL_REFRESH_DELAY_MS);
 }
