@@ -6,7 +6,7 @@
   "main": "dist/app.js",
   "scripts": {
     "dev": "tsx watch src/app.ts",
-    "build": "tsc",
+    "build": "npm install && tsc",
     "start": "node dist/app.js",
     "simulate": "tsx scripts/simulate_node.ts"
   },
