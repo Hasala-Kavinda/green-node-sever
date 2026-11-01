@@ -11,6 +11,7 @@ import {
   fetchLogs,
   clearAllLogs,
   pingDevice,
+  pingKeepAlive,
   sendTestReading,
   getWebSocketUrl,
   getBackendUrl,
@@ -76,6 +77,8 @@ export default function DashboardPage() {
   const [isEspOnline, setIsEspOnline] = useState<boolean>(false);
   const [espPingStatus, setEspPingStatus] = useState<string | null>(null);
   const [statsData, setStatsData] = useState<any>(null);
+  const [backendStatus, setBackendStatus] = useState<"connected" | "sleeping" | "checking">("checking");
+  const [backendLatency, setBackendLatency] = useState<number | null>(null);
 
   // Modals
   const [showRegisterModal, setShowRegisterModal] = useState<boolean>(false);
@@ -96,13 +99,38 @@ export default function DashboardPage() {
     }
   }, [isAuthenticated, isLoading, router]);
 
-  // Initial Data Load
+  // Initial Data Load & Keep-Alive Ping
   useEffect(() => {
     if (!isAuthenticated) return;
     setApiUrlInput(getBackendUrl());
+    checkBackendHealth();
     loadDevices();
     loadLogs();
+
+    // Auto keep-alive ping every 10 minutes while dashboard is open (Render sleeps after 15m idle)
+    const keepAliveTimer = setInterval(() => {
+      checkBackendHealth();
+    }, 10 * 60 * 1000);
+
+    return () => clearInterval(keepAliveTimer);
   }, [isAuthenticated]);
+
+  const checkBackendHealth = async () => {
+    const startTime = Date.now();
+    try {
+      setBackendStatus((prev) => (prev === "connected" ? "connected" : "checking"));
+      const data = await pingKeepAlive();
+      if (data && (data.status === "awake" || data.status === "ok")) {
+        setBackendLatency(Date.now() - startTime);
+        setBackendStatus("connected");
+      } else {
+        setBackendStatus("sleeping");
+      }
+    } catch {
+      setBackendStatus("sleeping");
+      setBackendLatency(null);
+    }
+  };
 
   // Active Device Change
   useEffect(() => {
@@ -392,6 +420,36 @@ export default function DashboardPage() {
                 ))}
               </select>
             )}
+
+            {/* Backend Server Status / Keep-Alive Badge */}
+            <button
+              onClick={checkBackendHealth}
+              title="Click to ping backend or wake up Render instance"
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition cursor-pointer ${
+                backendStatus === "connected"
+                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20"
+                  : backendStatus === "checking"
+                  ? "bg-blue-500/10 text-blue-400 border-blue-500/20 animate-pulse"
+                  : "bg-amber-500/10 text-amber-400 border-amber-500/20 hover:bg-amber-500/20"
+              }`}
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  backendStatus === "connected"
+                    ? "bg-emerald-400"
+                    : backendStatus === "checking"
+                    ? "bg-blue-400 animate-ping"
+                    : "bg-amber-400"
+                }`}
+              />
+              <span>
+                {backendStatus === "connected"
+                  ? `Backend: Live${backendLatency !== null ? ` (${backendLatency}ms)` : ""}`
+                  : backendStatus === "checking"
+                  ? "Backend: Checking..."
+                  : "Backend: Sleeping / Offline"}
+              </span>
+            </button>
 
             {/* ESP Liveness Badge */}
             <div

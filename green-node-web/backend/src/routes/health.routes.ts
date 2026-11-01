@@ -4,6 +4,7 @@ import { getConnectedClientCount } from '../services/websocket.service.js';
 
 const router = Router();
 
+// Detailed health check (includes DB status & client count)
 router.get('/health', (_req: Request, res: Response) => {
   const dbStatusMap: Record<number, string> = {
     0: 'disconnected',
@@ -27,6 +28,16 @@ router.get('/health', (_req: Request, res: Response) => {
     websocket: {
       connectedClients: getConnectedClientCount()
     }
+  });
+});
+
+// Dedicated, ultra-lightweight keep-alive endpoint for cron pingers & render anti-sleep
+router.get('/keep-alive', (_req: Request, res: Response) => {
+  res.status(200).json({
+    status: 'awake',
+    message: 'Render keep-alive ping acknowledged',
+    uptimeSeconds: Math.floor(process.uptime()),
+    timestamp: new Date().toISOString()
   });
 });
 

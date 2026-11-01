@@ -112,6 +112,11 @@ export async function pingDevice(deviceId: string) {
   return res.json();
 }
 
+export async function pingKeepAlive() {
+  const res = await fetch(`${getBackendUrl()}/api/keep-alive`);
+  return res.json();
+}
+
 export async function sendTestReading(payload: Partial<Reading>) {
   const res = await fetch(`${getBackendUrl()}/api/readings`, {
     method: "POST",
