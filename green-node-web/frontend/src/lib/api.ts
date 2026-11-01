@@ -33,6 +33,7 @@ export interface Reading {
   humidity: number;
   soilMoisture: number;
   light: number;
+  espTemperature?: number;
   metadata?: {
     chip?: string;
     soil_raw?: number;

@@ -6,6 +6,7 @@ export interface IReading extends Document {
   humidity: number;         // in % (0-100)
   soilMoisture: number;     // in % (0-100)
   light: number;            // in Lux (>= 0)
+  espTemperature?: number;  // ESP32 internal silicon die temp in Celsius (°C)
   metadata?: Record<string, any>;
   timestamp: Date;
 }
@@ -39,6 +40,12 @@ const ReadingSchema: Schema = new Schema<IReading>(
       type: Number,
       required: [true, 'light reading is required'],
       min: [0, 'light reading cannot be negative']
+    },
+    espTemperature: {
+      type: Number,
+      required: false,
+      min: [-40, 'ESP temperature cannot be less than -40'],
+      max: [125, 'ESP temperature cannot exceed 125']
     },
     metadata: {
       type: Schema.Types.Mixed,

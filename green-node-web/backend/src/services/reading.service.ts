@@ -27,6 +27,7 @@ export class ReadingService {
         humidity: savedReading.humidity,
         soilMoisture: savedReading.soilMoisture,
         light: savedReading.light,
+        espTemperature: savedReading.espTemperature,
         timestamp: savedReading.timestamp
       }
     };
@@ -61,12 +62,13 @@ export class ReadingService {
       level: 'success',
       category: 'telemetry',
       deviceId: savedReading.deviceId,
-      message: `Received sensor packet: Temp=${savedReading.temperature}°C, Hum=${savedReading.humidity}%, Soil=${savedReading.soilMoisture}%, Light=${savedReading.light} Lux`,
+      message: `Received sensor packet: Temp=${savedReading.temperature}°C, Hum=${savedReading.humidity}%, Soil=${savedReading.soilMoisture}%, Light=${savedReading.light} Lux${savedReading.espTemperature !== undefined ? `, ESP=${savedReading.espTemperature}°C` : ""}`,
       details: {
         temperature: savedReading.temperature,
         humidity: savedReading.humidity,
         soilMoisture: savedReading.soilMoisture,
         light: savedReading.light,
+        espTemperature: savedReading.espTemperature,
         metadata: savedReading.metadata
       }
     });
@@ -96,6 +98,7 @@ export class ReadingService {
               humidity: latest.humidity,
               soilMoisture: latest.soilMoisture,
               light: latest.light,
+              espTemperature: latest.espTemperature,
               timestamp: latest.timestamp
             }
           },
@@ -217,6 +220,7 @@ export class ReadingService {
           minSoilMoisture: { $min: '$soilMoisture' },
           maxSoilMoisture: { $max: '$soilMoisture' },
           avgLight: { $avg: '$light' },
+          avgEspTemperature: { $avg: '$espTemperature' },
           minLight: { $min: '$light' },
           maxLight: { $max: '$light' }
         }
@@ -262,6 +266,10 @@ export class ReadingService {
         min: stats.minLight,
         max: stats.maxLight,
         unit: 'Lux'
+      },
+      espTemperature: {
+        avg: round(stats.avgEspTemperature),
+        unit: '°C'
       }
     };
   }

@@ -22,6 +22,7 @@ import {
 } from "@/lib/api";
 import {
   Leaf,
+  Cpu,
   Thermometer,
   Droplets,
   Sprout,
@@ -280,6 +281,7 @@ export default function DashboardPage() {
         humidity: parseFloat((55 + Math.random() * 15).toFixed(2)),
         soilMoisture: parseFloat((45 + Math.random() * 25).toFixed(2)),
         light: parseFloat((450 + Math.random() * 400).toFixed(1)),
+        espTemperature: parseFloat((37 + Math.random() * 8).toFixed(2)),
         metadata: { chip: "esp32-c3-supermini", rssi: -62 },
       });
       loadDeviceData(activeDeviceId);
@@ -332,6 +334,15 @@ export default function DashboardPage() {
         label: "Soil Moisture (%)",
         data: recentReadings.slice(0, 15).reverse().map((r) => r.soilMoisture),
         borderColor: "#8B5CF6",
+        backgroundColor: "transparent",
+        tension: 0.35,
+        borderWidth: 2,
+        yAxisID: "y",
+      },
+      {
+        label: "ESP32 Core Temp (°C)",
+        data: recentReadings.slice(0, 15).reverse().map((r) => r.espTemperature ?? null),
+        borderColor: "#F97316",
         backgroundColor: "transparent",
         tension: 0.35,
         borderWidth: 2,
@@ -517,22 +528,22 @@ export default function DashboardPage() {
       {/* Main Content */}
       <main className="flex-1 max-w-7xl mx-auto w-full px-6 py-8 space-y-8">
         {/* Metric Cards Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* 1. Temperature */}
-          <div className="bg-[#141417] border border-[#282830] rounded-2xl p-5 shadow-sm hover:border-[#383842] transition">
-            <div className="flex items-center justify-between text-[#8E8E93] text-xs font-medium mb-3">
-              <span>Ambient Temperature</span>
-              <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+          {/* 1. Ambient Temperature */}
+          <div className="bg-[#141417] border border-[#282830] rounded-2xl p-4 shadow-sm hover:border-[#383842] transition">
+            <div className="flex items-center justify-between text-[#8E8E93] text-xs font-medium mb-2.5">
+              <span>Ambient Temp</span>
+              <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400">
                 <Thermometer className="w-4 h-4" />
               </div>
             </div>
-            <div className="flex items-baseline space-x-2">
-              <span className="text-3xl font-semibold text-white tracking-tight">
+            <div className="flex items-baseline space-x-1.5">
+              <span className="text-2xl font-semibold text-white tracking-tight">
                 {latestReading ? latestReading.temperature.toFixed(1) : "--"}
               </span>
-              <span className="text-sm font-medium text-[#8E8E93]">°C</span>
+              <span className="text-xs font-medium text-[#8E8E93]">°C</span>
             </div>
-            <div className="mt-3 flex items-center justify-between text-xs text-[#8E8E93]">
+            <div className="mt-2 flex items-center justify-between text-[11px] text-[#8E8E93]">
               <span>
                 {latestReading ? `${((latestReading.temperature * 9) / 5 + 32).toFixed(1)} °F` : "--"}
               </span>
@@ -540,73 +551,99 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* 2. Humidity */}
-          <div className="bg-[#141417] border border-[#282830] rounded-2xl p-5 shadow-sm hover:border-[#383842] transition">
-            <div className="flex items-center justify-between text-[#8E8E93] text-xs font-medium mb-3">
-              <span>Relative Humidity</span>
-              <div className="p-2 rounded-xl bg-cyan-500/10 text-cyan-400">
+          {/* 2. Relative Humidity */}
+          <div className="bg-[#141417] border border-[#282830] rounded-2xl p-4 shadow-sm hover:border-[#383842] transition">
+            <div className="flex items-center justify-between text-[#8E8E93] text-xs font-medium mb-2.5">
+              <span>Rel. Humidity</span>
+              <div className="p-1.5 rounded-lg bg-cyan-500/10 text-cyan-400">
                 <Droplets className="w-4 h-4" />
               </div>
             </div>
-            <div className="flex items-baseline space-x-2">
-              <span className="text-3xl font-semibold text-white tracking-tight">
+            <div className="flex items-baseline space-x-1.5">
+              <span className="text-2xl font-semibold text-white tracking-tight">
                 {latestReading ? latestReading.humidity.toFixed(1) : "--"}
               </span>
-              <span className="text-sm font-medium text-[#8E8E93]">% RH</span>
+              <span className="text-xs font-medium text-[#8E8E93]">% RH</span>
             </div>
-            <div className="mt-3 flex items-center justify-between text-xs text-[#8E8E93]">
+            <div className="mt-2 flex items-center justify-between text-[11px] text-[#8E8E93]">
               <span>Optimal: 40-70%</span>
-              <span className="text-cyan-400 font-medium">Digital Bus</span>
+              <span className="text-cyan-400 font-medium">Single-Wire</span>
             </div>
           </div>
 
           {/* 3. Soil Moisture */}
-          <div className="bg-[#141417] border border-[#282830] rounded-2xl p-5 shadow-sm hover:border-[#383842] transition">
-            <div className="flex items-center justify-between text-[#8E8E93] text-xs font-medium mb-3">
+          <div className="bg-[#141417] border border-[#282830] rounded-2xl p-4 shadow-sm hover:border-[#383842] transition">
+            <div className="flex items-center justify-between text-[#8E8E93] text-xs font-medium mb-2.5">
               <span>Soil Moisture</span>
-              <div className="p-2 rounded-xl bg-purple-500/10 text-purple-400">
+              <div className="p-1.5 rounded-lg bg-purple-500/10 text-purple-400">
                 <Sprout className="w-4 h-4" />
               </div>
             </div>
-            <div className="flex items-baseline space-x-2">
-              <span className="text-3xl font-semibold text-white tracking-tight">
+            <div className="flex items-baseline space-x-1.5">
+              <span className="text-2xl font-semibold text-white tracking-tight">
                 {latestReading ? latestReading.soilMoisture.toFixed(1) : "--"}
               </span>
-              <span className="text-sm font-medium text-[#8E8E93]">%</span>
+              <span className="text-xs font-medium text-[#8E8E93]">%</span>
             </div>
-            <div className="mt-3 flex items-center justify-between text-xs text-[#8E8E93]">
+            <div className="mt-2 flex items-center justify-between text-[11px] text-[#8E8E93]">
               <span>
-                {latestReading?.metadata?.soil_raw ? `ADC: ${latestReading.metadata.soil_raw}` : "MD0869"}
+                {latestReading?.metadata?.soil_raw ? `ADC: ${latestReading.metadata.soil_raw}` : "Gated ADC"}
               </span>
-              <span className="text-purple-400 font-medium">Power-Gated</span>
+              <span className="text-purple-400 font-medium">MD0869</span>
             </div>
           </div>
 
-          {/* 4. Ambient Light */}
-          <div className="bg-[#141417] border border-[#282830] rounded-2xl p-5 shadow-sm hover:border-[#383842] transition">
-            <div className="flex items-center justify-between text-[#8E8E93] text-xs font-medium mb-3">
-              <span>Ambient Illuminance</span>
-              <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400">
+          {/* 4. Ambient Illuminance / Lux */}
+          <div className="bg-[#141417] border border-[#282830] rounded-2xl p-4 shadow-sm hover:border-[#383842] transition">
+            <div className="flex items-center justify-between text-[#8E8E93] text-xs font-medium mb-2.5">
+              <span>Illuminance (Lux)</span>
+              <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400">
                 <Sun className="w-4 h-4" />
               </div>
             </div>
-            <div className="flex items-baseline space-x-2">
-              <span className="text-3xl font-semibold text-white tracking-tight">
+            <div className="flex items-baseline space-x-1.5">
+              <span className="text-2xl font-semibold text-white tracking-tight">
                 {latestReading ? latestReading.light.toFixed(0) : "--"}
               </span>
-              <span className="text-sm font-medium text-[#8E8E93]">lx</span>
+              <span className="text-xs font-medium text-[#8E8E93]">lx</span>
             </div>
-            <div className="mt-3 flex items-center justify-between text-xs text-[#8E8E93]">
+            <div className="mt-2 flex items-center justify-between text-[11px] text-[#8E8E93]">
               <span>
                 {latestReading
                   ? latestReading.light > 1000
-                    ? "☀️ Bright Daylight"
+                    ? "☀️ Daylight"
                     : latestReading.light > 200
-                    ? "⛅ Ambient Indoor"
+                    ? "⛅ Indoor"
                     : "🌑 Dim Light"
                   : "--"}
               </span>
               <span className="text-amber-400 font-medium">BH1750 I2C</span>
+            </div>
+          </div>
+
+          {/* 5. ESP32 Silicon Die Temp */}
+          <div className="bg-[#141417] border border-[#282830] rounded-2xl p-4 shadow-sm hover:border-[#383842] transition">
+            <div className="flex items-center justify-between text-[#8E8E93] text-xs font-medium mb-2.5">
+              <span>ESP32 SoC Temp</span>
+              <div className="p-1.5 rounded-lg bg-orange-500/10 text-orange-400">
+                <Cpu className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="flex items-baseline space-x-1.5">
+              <span className="text-2xl font-semibold text-white tracking-tight">
+                {latestReading?.espTemperature !== undefined ? latestReading.espTemperature.toFixed(1) : "--"}
+              </span>
+              <span className="text-xs font-medium text-[#8E8E93]">°C</span>
+            </div>
+            <div className="mt-2 flex items-center justify-between text-[11px] text-[#8E8E93]">
+              <span>
+                {latestReading?.espTemperature !== undefined
+                  ? latestReading.espTemperature < 65
+                    ? "🟢 Healthy"
+                    : "⚠️ Warm"
+                  : "On-Chip Die"}
+              </span>
+              <span className="text-orange-400 font-medium">temperatureRead()</span>
             </div>
           </div>
         </div>
@@ -655,7 +692,8 @@ export default function DashboardPage() {
                     <th className="py-2.5 px-3">Temp</th>
                     <th className="py-2.5 px-3">Humidity</th>
                     <th className="py-2.5 px-3">Soil</th>
-                    <th className="py-2.5 px-3">Light</th>
+                    <th className="py-2.5 px-3">Lux</th>
+                    <th className="py-2.5 px-3">ESP Temp</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#202026]">
@@ -676,11 +714,14 @@ export default function DashboardPage() {
                       <td className="py-2.5 px-3 text-amber-400 font-medium">
                         {r.light.toFixed(0)} lx
                       </td>
+                      <td className="py-2.5 px-3 text-orange-400 font-medium">
+                        {r.espTemperature !== undefined ? `${r.espTemperature.toFixed(1)}°C` : "--"}
+                      </td>
                     </tr>
                   ))}
                   {recentReadings.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="py-8 text-center text-[#6E6E73]">
+                      <td colSpan={6} className="py-8 text-center text-[#6E6E73]">
                         No telemetry received yet. Click "Simulate" to test.
                       </td>
                     </tr>

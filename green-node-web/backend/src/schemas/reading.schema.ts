@@ -9,14 +9,36 @@ export const createReadingSchema = z.preprocess(
       if (!copy.deviceId && copy.device_id) {
         copy.deviceId = copy.device_id;
       }
+      // Map aliases for ambient temperature
+      if (copy.temperature === undefined) {
+        if (copy.temp !== undefined) copy.temperature = copy.temp;
+        else if (copy.ambient_temp !== undefined) copy.temperature = copy.ambient_temp;
+        else if (copy.ambientTemperature !== undefined) copy.temperature = copy.ambientTemperature;
+      }
+      // Map aliases for humidity
+      if (copy.humidity === undefined) {
+        if (copy.hum !== undefined) copy.humidity = copy.hum;
+      }
       // Map aliases for soil moisture
       if (copy.soilMoisture === undefined) {
         if (copy.soil_percent !== undefined) copy.soilMoisture = copy.soil_percent;
         else if (copy.soil_moisture !== undefined) copy.soilMoisture = copy.soil_moisture;
+        else if (copy.soilMoisturePercent !== undefined) copy.soilMoisture = copy.soilMoisturePercent;
       }
-      // If light is omitted, default to 0
+      // Map aliases for light / illuminance / lux
       if (copy.light === undefined) {
-        copy.light = 0;
+        if (copy.lux !== undefined) copy.light = copy.lux;
+        else if (copy.light_level !== undefined) copy.light = copy.light_level;
+        else if (copy.lightLevel !== undefined) copy.light = copy.lightLevel;
+        else copy.light = 0;
+      }
+      // Map aliases for ESP32 internal silicon die temperature
+      if (copy.espTemperature === undefined) {
+        if (copy.esp_temperature !== undefined) copy.espTemperature = copy.esp_temperature;
+        else if (copy.chip_temp !== undefined) copy.espTemperature = copy.chip_temp;
+        else if (copy.internal_temp !== undefined) copy.espTemperature = copy.internal_temp;
+        else if (copy.internalTemperature !== undefined) copy.espTemperature = copy.internalTemperature;
+        else if (copy.espTemp !== undefined) copy.espTemperature = copy.espTemp;
       }
       return copy;
     }
@@ -43,6 +65,11 @@ export const createReadingSchema = z.preprocess(
       .number()
       .min(0, 'light must be greater than or equal to 0')
       .default(0),
+    espTemperature: z
+      .number()
+      .min(-40, 'ESP temperature cannot be less than -40°C')
+      .max(125, 'ESP temperature cannot exceed 125°C')
+      .optional(),
     metadata: z.record(z.string(), z.any()).optional(),
     timestamp: z
       .union([z.string().datetime(), z.date()])
@@ -64,7 +91,7 @@ export const queryReadingsSchema = z.object({
   endDate: z.string().datetime().optional(),
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(1000).default(50),
-  sortBy: z.enum(['timestamp', 'temperature', 'humidity', 'soilMoisture', 'light']).default('timestamp'),
+  sortBy: z.enum(['timestamp', 'temperature', 'humidity', 'soilMoisture', 'light', 'espTemperature']).default('timestamp'),
   sortOrder: z.enum(['asc', 'desc']).default('desc')
 });
 

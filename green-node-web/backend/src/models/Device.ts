@@ -15,6 +15,7 @@ export interface IDevice extends Document {
     humidity: number;
     soilMoisture: number;
     light: number;
+    espTemperature?: number;
     timestamp: Date;
   };
 }
@@ -73,6 +74,7 @@ const DeviceSchema: Schema = new Schema<IDevice>(
       humidity: Number,
       soilMoisture: Number,
       light: Number,
+      espTemperature: Number,
       timestamp: Date
     }
   },
