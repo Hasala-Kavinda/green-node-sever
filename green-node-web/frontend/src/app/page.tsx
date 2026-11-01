@@ -282,6 +282,8 @@ export default function DashboardPage() {
         soilMoisture: parseFloat((45 + Math.random() * 25).toFixed(2)),
         light: parseFloat((450 + Math.random() * 400).toFixed(1)),
         espTemperature: parseFloat((37 + Math.random() * 8).toFixed(2)),
+        wifiSsid: "Greenhouse_IoT_2.4G",
+        timestamp: new Date().toISOString(),
         metadata: { chip: "esp32-c3-supermini", rssi: -62 },
       });
       loadDeviceData(activeDeviceId);
@@ -410,7 +412,7 @@ export default function DashboardPage() {
                 </span>
               </h1>
               <p className="text-xs text-[#8E8E93]">
-                {currentDevice?.location || "Greenhouse Zone 1"} • {currentDevice?.name || "Primary Node"}
+                {currentDevice?.location || "Greenhouse Zone 1"} • {currentDevice?.name || "Primary Node"}{latestReading?.wifiSsid || currentDevice?.wifiSsid ? ` • 📶 ${latestReading?.wifiSsid || currentDevice?.wifiSsid}` : ""}
               </p>
             </div>
           </div>
@@ -484,6 +486,15 @@ export default function DashboardPage() {
             >
               <Radio className="w-3.5 h-3.5" />
               <span>{wsConnected ? "WS Live" : "WS Offline"}</span>
+            </div>
+
+            {/* Wi-Fi Network Badge */}
+            <div
+              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full text-xs font-medium border bg-[#141417] border-[#282830] text-[#A1A1A6]"
+              title="Active Wi-Fi Network reported by ESP32"
+            >
+              <Wifi className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="max-w-[130px] truncate">{latestReading?.wifiSsid || currentDevice?.wifiSsid || "Wi-Fi: Searching"}</span>
             </div>
 
             {/* Register Device Button */}
@@ -688,7 +699,8 @@ export default function DashboardPage() {
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="border-b border-[#24242A] text-[#8E8E93]">
-                    <th className="py-2.5 px-3">Time</th>
+                    <th className="py-2.5 px-3">ESP Time</th>
+                    <th className="py-2.5 px-3">Wi-Fi</th>
                     <th className="py-2.5 px-3">Temp</th>
                     <th className="py-2.5 px-3">Humidity</th>
                     <th className="py-2.5 px-3">Soil</th>
@@ -699,8 +711,12 @@ export default function DashboardPage() {
                 <tbody className="divide-y divide-[#202026]">
                   {recentReadings.slice(0, 7).map((r, i) => (
                     <tr key={i} className="hover:bg-[#1A1A20] transition">
-                      <td className="py-2.5 px-3 text-[#A1A1A6]">
-                        {new Date(r.timestamp).toLocaleTimeString()}
+                      <td className="py-2.5 px-3 text-[#A1A1A6] whitespace-nowrap">
+                        <div>{new Date(r.timestamp).toLocaleTimeString()}</div>
+                        <div className="text-[10px] text-[#6E6E73]">{new Date(r.timestamp).toLocaleDateString()}</div>
+                      </td>
+                      <td className="py-2.5 px-3 text-cyan-300 font-mono text-[11px]">
+                        {r.wifiSsid || "--"}
                       </td>
                       <td className="py-2.5 px-3 text-emerald-400 font-medium">
                         {r.temperature.toFixed(1)}°C
@@ -721,7 +737,7 @@ export default function DashboardPage() {
                   ))}
                   {recentReadings.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center text-[#6E6E73]">
+                      <td colSpan={7} className="py-8 text-center text-[#6E6E73]">
                         No telemetry received yet. Click "Simulate" to test.
                       </td>
                     </tr>

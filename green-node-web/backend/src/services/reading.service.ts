@@ -28,9 +28,14 @@ export class ReadingService {
         soilMoisture: savedReading.soilMoisture,
         light: savedReading.light,
         espTemperature: savedReading.espTemperature,
+        wifiSsid: savedReading.wifiSsid,
         timestamp: savedReading.timestamp
       }
     };
+
+    if (savedReading.wifiSsid) {
+      updateFields.wifiSsid = savedReading.wifiSsid;
+    }
 
     if (callerIp && !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(callerIp)) {
       updateFields.ipAddress = callerIp.replace('::ffff:', '');
@@ -99,6 +104,7 @@ export class ReadingService {
               soilMoisture: latest.soilMoisture,
               light: latest.light,
               espTemperature: latest.espTemperature,
+              wifiSsid: latest.wifiSsid,
               timestamp: latest.timestamp
             }
           },

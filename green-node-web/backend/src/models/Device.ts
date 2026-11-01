@@ -8,6 +8,7 @@ export interface IDevice extends Document {
   port?: number;          // Port for ESP's onboard HTTP health server (default: 80)
   heartbeatTimeoutSeconds: number; // Seconds before marking device as offline (default: 60)
   rssi?: number;          // WiFi Signal Strength in dBm
+  wifiSsid?: string;      // Current connected Wi-Fi Network SSID
   lastSeen: Date;
   status: 'online' | 'warning' | 'offline';
   latestReading?: {
@@ -16,6 +17,7 @@ export interface IDevice extends Document {
     soilMoisture: number;
     light: number;
     espTemperature?: number;
+    wifiSsid?: string;
     timestamp: Date;
   };
 }
@@ -60,6 +62,11 @@ const DeviceSchema: Schema = new Schema<IDevice>(
       type: Number,
       required: false
     },
+    wifiSsid: {
+      type: String,
+      required: false,
+      trim: true
+    },
     lastSeen: {
       type: Date,
       default: Date.now
@@ -75,6 +82,7 @@ const DeviceSchema: Schema = new Schema<IDevice>(
       soilMoisture: Number,
       light: Number,
       espTemperature: Number,
+      wifiSsid: String,
       timestamp: Date
     }
   },

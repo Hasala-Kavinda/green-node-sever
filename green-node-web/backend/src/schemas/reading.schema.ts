@@ -40,6 +40,29 @@ export const createReadingSchema = z.preprocess(
         else if (copy.internalTemperature !== undefined) copy.espTemperature = copy.internalTemperature;
         else if (copy.espTemp !== undefined) copy.espTemperature = copy.espTemp;
       }
+      // Map aliases for connected WiFi network
+      if (!copy.wifiSsid) {
+        if (copy.wifi_ssid) copy.wifiSsid = copy.wifi_ssid;
+        else if (copy.ssid) copy.wifiSsid = copy.ssid;
+        else if (copy.wifiNetwork) copy.wifiSsid = copy.wifiNetwork;
+        else if (copy.wifi_network) copy.wifiSsid = copy.wifi_network;
+      }
+      // Map aliases for timestamp from ESP
+      if (copy.timestamp === undefined) {
+        if (copy.esp_timestamp !== undefined) copy.timestamp = copy.esp_timestamp;
+        else if (copy.espTimestamp !== undefined) copy.timestamp = copy.espTimestamp;
+        else if (copy.device_timestamp !== undefined) copy.timestamp = copy.device_timestamp;
+        else if (copy.deviceTimestamp !== undefined) copy.timestamp = copy.deviceTimestamp;
+        else if (copy.time !== undefined) copy.timestamp = copy.time;
+        else if (copy.epoch !== undefined) copy.timestamp = copy.epoch;
+      }
+      // If timestamp is unix epoch in seconds (e.g. 10 digits), convert to ms
+      if (typeof copy.timestamp === 'number') {
+        if (copy.timestamp < 10000000000) {
+          copy.timestamp = copy.timestamp * 1000;
+        }
+        copy.timestamp = new Date(copy.timestamp);
+      }
       return copy;
     }
     return raw;
@@ -70,11 +93,16 @@ export const createReadingSchema = z.preprocess(
       .min(-40, 'ESP temperature cannot be less than -40°C')
       .max(125, 'ESP temperature cannot exceed 125°C')
       .optional(),
+    wifiSsid: z.string().trim().max(100).optional(),
     metadata: z.record(z.string(), z.any()).optional(),
     timestamp: z
-      .union([z.string().datetime(), z.date()])
+      .union([z.string(), z.number(), z.date()])
       .optional()
-      .transform((val) => (val ? new Date(val) : new Date()))
+      .transform((val) => {
+        if (!val) return new Date();
+        const d = new Date(val);
+        return isNaN(d.getTime()) ? new Date() : d;
+      })
   })
 );
 

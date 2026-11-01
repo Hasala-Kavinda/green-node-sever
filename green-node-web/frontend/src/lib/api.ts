@@ -34,6 +34,7 @@ export interface Reading {
   soilMoisture: number;
   light: number;
   espTemperature?: number;
+  wifiSsid?: string;
   metadata?: {
     chip?: string;
     soil_raw?: number;
@@ -48,6 +49,7 @@ export interface Device {
   deviceId: string;
   name: string;
   location?: string;
+  wifiSsid?: string;
   isOnline?: boolean;
   lastSeen?: string;
 }
