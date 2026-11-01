@@ -136,6 +136,12 @@ esp code/
 ├── ESPC3SuperMini.png
 ├── README.md                                  <-- Master sensor documentation
 ├── esp_code.ino                               <-- Main WiFi & HTTP telemetry firmware
+├── final_code/                                <-- Final production single-sensor integration codes
+│   ├── README.md                              <-- Documentation for final integration codes
+│   ├── md0869_integration/                   <-- Final code with MD0869 reference soil probe
+│   │   └── md0869_integration.ino
+│   └── fc28_integration/                     <-- Final code with FC-28 standard soil probe
+│       └── fc28_integration.ino
 └── unit_tests/
     ├── soil_moisture/                         <-- Dual sensor comparison test (MD0869 vs FC-28)
     │   ├── soil_moisture.ino
@@ -152,7 +158,7 @@ esp code/
     ├── bh1750/                                <-- BH1750 Ambient Light standalone test
     │   ├── bh1750.ino
     │   └── pin_diagram.md
-    └── integrated_test/                       <-- All-in-one multi-sensor hardware test
+    └── integrated_test/                       <-- Single-soil multi-sensor integrated test
         ├── integrated_test.ino
         └── pin_diagram.md
 ```
