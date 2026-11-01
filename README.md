@@ -2,8 +2,8 @@
 
 A complete end-to-end IoT system for greenhouse, hydroponics, and smart agriculture monitoring. The repository is partitioned into two dedicated modules:
 
-1. **`esp code/`**: Embedded C++ firmware for the **ESP32-C3 SuperMini** microcontroller, including individual hardware unit tests, integration tests, and production single-sensor firmware.
-2. **`full_stack_development/`**: Full-stack Node.js / Express backend, MongoDB database, real-time WebSocket server, and live HTML5 dashboard.
+1. **`firmware/`**: Embedded C++ firmware for the **ESP32-C3 SuperMini** microcontroller, including individual hardware unit tests, integration tests, and production single-sensor firmware.
+2. **`green-node-web/`**: Full-stack Node.js / Express backend, MongoDB database, real-time WebSocket server, and live HTML5 dashboard.
 
 ---
 
@@ -12,7 +12,7 @@ A complete end-to-end IoT system for greenhouse, hydroponics, and smart agricult
 ```text
 green-node-sever/
 │
-├── esp code/                                  <-- 1. Embedded ESP32-C3 Firmware & Tests
+├── firmware/                                  <-- 1. Embedded ESP32-C3 Firmware & Tests
 │   ├── README.md                              <-- Master embedded guide & pin specifications
 │   ├── assets/                                <-- Board pinout diagrams & visual schematics
 │   ├── unit_tests/                            <-- Standalone hardware sensor unit tests
@@ -33,22 +33,28 @@ green-node-sever/
 │       ├── md0869_integration/               <-- Final code for MD0869 reference soil probe
 │       └── fc28_integration/                 <-- Final code for FC-28 standard soil probe
 │
-└── full_stack_development/                    <-- 2. Full-Stack Web & Backend Server
-    ├── README.md                              <-- Server setup & REST API documentation
-    ├── src/                                   <-- TypeScript backend source code
-    │   ├── app.ts                             <-- Express application entry point
-    │   ├── config/                            <-- Database & environment config
-    │   ├── controllers/                       <-- REST API controllers
-    │   ├── models/                            <-- MongoDB Mongoose schemas
-    │   ├── public/                            <-- Live HTML5 / JS monitoring dashboard
-    │   ├── routes/                            <-- Express API routes
-    │   ├── schemas/                           <-- Zod validation schemas
-    │   ├── services/                          <-- Business logic, Logger & WebSockets
-    │   └── swagger/                           <-- OpenAPI Swagger UI documentation
-    ├── scripts/                               <-- Simulation scripts (simulate_node.ts)
-    ├── package.json                           <-- Node dependencies & scripts
-    ├── tsconfig.json                          <-- TypeScript configuration
-    └── docker-compose.yml                     <-- Containerized MongoDB setup
+└── green-node-web/                            <-- 2. Web & Cloud Application Suite
+    ├── README.md                              <-- Architecture & deployment guide
+    │
+    ├── backend/                               <-- Express REST API, MongoDB & WebSockets (Render)
+    │   ├── README.md                          <-- API docs & local setup
+    │   ├── package.json                       <-- Node dependencies & scripts
+    │   ├── tsconfig.json                      <-- TypeScript configuration
+    │   ├── docker-compose.yml                 <-- Local MongoDB container
+    │   ├── scripts/                           <-- Simulation scripts (simulate_node.ts)
+    │   └── src/                               <-- Express backend source code
+    │       ├── app.ts                         <-- Server entry point
+    │       ├── config/                        <-- Database & environment config
+    │       ├── controllers/                   <-- REST API controllers
+    │       ├── models/                        <-- MongoDB Mongoose schemas
+    │       ├── routes/                        <-- Express API routes
+    │       ├── schemas/                       <-- Zod validation schemas
+    │       ├── services/                      <-- Business logic, Logger & WebSockets
+    │       └── swagger/                       <-- OpenAPI Swagger UI documentation
+    │
+    └── frontend/                              <-- Real-time Monitoring Dashboard (Vercel)
+        ├── README.md                          <-- Vercel deployment guide & API config
+        └── index.html                         <-- Real-time Tailwind & Chart.js dashboard
 ```
 
 ---
@@ -56,15 +62,15 @@ green-node-sever/
 ## 🚀 Quick Start Guide
 
 ### 1. Working on the Embedded ESP32 Code
-Open any sketch in **Arduino IDE** from the [`esp code/`](./esp%20code/) folder:
-* **Unit Testing**: Test individual sensors one by one under [`esp code/unit_tests/`](./esp%20code/unit_tests/).
-* **Integrated Hardware Test**: Run all sensors together locally in [`esp code/integrated_test/`](./esp%20code/integrated_test/).
-* **Production Code**: Flash [`esp code/final_code/md0869_integration/`](./esp%20code/final_code/md0869_integration/) (or `fc28_integration/`).
+Open any sketch in **Arduino IDE** from the [`firmware/`](./firmware/) folder:
+* **Unit Testing**: Test individual sensors one by one under [`firmware/unit_tests/`](./firmware/unit_tests/).
+* **Integrated Hardware Test**: Run all sensors together locally in [`firmware/integrated_test/`](./firmware/integrated_test/).
+* **Production Code**: Flash [`firmware/final_code/md0869_integration/`](./firmware/final_code/md0869_integration/) (or `fc28_integration/`).
 
-### 2. Working on Full-Stack Development
-Navigate to [`full_stack_development/`](./full_stack_development/):
+### 2. Working on Backend & Web Dashboard
+Navigate to [`green-node-web/backend/`](./green-node-web/backend/):
 ```bash
-cd full_stack_development
+cd green-node-web/backend
 
 # Install dependencies
 npm install
@@ -76,5 +82,6 @@ npm run dev
 npm run simulate
 ```
 
-* **Live Dashboard**: [http://localhost:4000](http://localhost:4000)
+* **Live Dashboard**: [http://localhost:4000](http://localhost:4000) (served from backend) or open [`green-node-web/frontend/index.html`](./green-node-web/frontend/index.html)
 * **API Documentation**: [http://localhost:4000/docs](http://localhost:4000/docs)
+
