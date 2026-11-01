@@ -4,6 +4,8 @@ import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import swaggerUi from 'swagger-ui-express';
+import fs from 'fs';
+import os from 'os';
 
 import { config } from './config/env.js';
 import { connectDatabase, disconnectDatabase } from './config/database.js';
@@ -11,9 +13,6 @@ import { initWebSocketServer } from './services/websocket.service.js';
 import readingRoutes from './routes/reading.routes.js';
 import healthRoutes from './routes/health.routes.js';
 import { swaggerDocument } from './swagger/openapi.js';
-
-import fs from 'fs';
-import os from 'os';
 
 function getLocalIpAddresses(): string[] {
   const nets = os.networkInterfaces();
@@ -31,7 +30,7 @@ function getLocalIpAddresses(): string[] {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Locate public directory whether running from /src (tsx/ts-node) or /dist (compiled JS)
+// Locate public directory if legacy static dashboard is embedded
 const publicDir = fs.existsSync(path.join(__dirname, 'public'))
   ? path.join(__dirname, 'public')
   : path.join(__dirname, '..', 'src', 'public');
@@ -42,13 +41,39 @@ const server = http.createServer(app);
 // Initialize WebSockets
 initWebSocketServer(server);
 
-// Middleware
-app.use(cors({ origin: config.corsOrigin }));
+// --- Dynamic CORS Configuration for Next.js Frontend Communication ---
+const allowedOrigins = [
+  config.frontendUrl,
+  ...(config.corsOrigin === '*' ? ['*'] : config.corsOrigin.split(',').map((s: string) => s.trim()))
+].filter(Boolean);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // 1. Allow non-browser requests (ESP32 microcontrollers, curl, postman)
+    if (!origin) return callback(null, true);
+    // 2. Allow if wildcard * is configured
+    if (allowedOrigins.includes('*')) return callback(null, true);
+    // 3. Allow explicit configured frontend URL or CORS origin list
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    // 4. In development, allow any localhost port
+    if (config.nodeEnv !== 'production' && origin.startsWith('http://localhost:')) {
+      return callback(null, true);
+    }
+    // Permissive fallback
+    return callback(null, true);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
+}));
+
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Serve built-in static dashboard
-app.use(express.static(publicDir));
+// Serve built-in static dashboard if present
+if (fs.existsSync(publicDir)) {
+  app.use(express.static(publicDir));
+}
 
 // Swagger Documentation UI
 app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
@@ -59,9 +84,22 @@ app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
 app.use('/api', readingRoutes);
 app.use('/api', healthRoutes);
 
-// Fallback to dashboard for root if needed
+// Root route: Serves embedded dashboard or outputs JSON status linking to Next.js frontend
 app.get('/', (_req, res) => {
-  res.sendFile(path.join(publicDir, 'index.html'));
+  const indexPath = path.join(publicDir, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    return res.sendFile(indexPath);
+  }
+  res.json({
+    status: 'online',
+    service: 'Green Node IoT Backend',
+    version: '1.0.0',
+    documentation: '/docs',
+    health: '/api/health',
+    telemetryEndpoint: '/api/readings',
+    frontendUrl: config.frontendUrl,
+    timestamp: new Date().toISOString()
+  });
 });
 
 // 404 Handler for undefined API routes
@@ -87,16 +125,16 @@ async function startServer() {
     server.listen(config.port, '0.0.0.0', () => {
       console.log(`\n======================================================`);
       console.log(`🌿 Green Node IoT Backend is running!`);
-      console.log(`🚀 Local URL:       http://localhost:${config.port}`);
+      console.log(`🚀 Server Port:     ${config.port} (${config.nodeEnv})`);
+      console.log(`🌐 Frontend App:    ${config.frontendUrl}`);
+      console.log(`📡 WebSocket Path:  ws://localhost:${config.port}/ws`);
+      console.log(`📖 API Docs:        http://localhost:${config.port}/docs`);
+      console.log(`🏥 Health Check:    http://localhost:${config.port}/api/health`);
       if (lanIps.length > 0) {
         lanIps.forEach(ip => {
-          console.log(`📶 ESP Server URL:  http://${ip}:${config.port}/api/readings`);
+          console.log(`📶 ESP Ingestion:   http://${ip}:${config.port}/api/readings`);
         });
       }
-      console.log(`📊 Live Dashboard:  http://localhost:${config.port}`);
-      console.log(`📖 API Docs:        http://localhost:${config.port}/docs`);
-      console.log(`📡 WebSocket:       ws://localhost:${config.port}/ws`);
-      console.log(`🏥 Health Check:    http://localhost:${config.port}/api/health`);
       console.log(`======================================================\n`);
     });
   } catch (error) {
