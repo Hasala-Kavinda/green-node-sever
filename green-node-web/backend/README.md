@@ -2,26 +2,29 @@
 
 A robust, type-safe backend and MongoDB database built for IoT environment and soil monitoring (Greenhouses, Smart Agriculture, Hydroponics, and Indoor Plants).
 
-Monitors and processes 4 core environmental metrics:
+Monitors and processes core environmental metrics:
 1. 💧 **Humidity** (Relative Humidity %)
 2. 🌡️ **Temperature** (Celsius °C / Fahrenheit)
 3. 🌱 **Soil Moisture** (Volumetric Water Content %)
 4. ☀️ **Light Sensor** (Ambient Lux / Intensity)
+5. 🔥 **ESP32 Internal Silicon Die Temperature** (°C)
+6. 📶 **Wi-Fi Network Name (SSID) & RSSI** (dBm)
 
 ---
 
 ## 📌 Architecture Highlights
 
-* **UUID Device Identification**: Sensor nodes are identified by a standard UUID (e.g. `123e4567-e89b-12d3-a456-426614174000`).
-* **Database-Tracked Locations**: Physical locations are managed in the database during device registration.
+* **Production URL on Render**: `https://blue-circle.onrender.com`
+* **UUID Device Identification**: Sensor nodes are identified by a standard UUID (e.g. `a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11`).
+* **Database-Tracked Locations & Auto-Registration**: Devices are automatically registered on their first valid telemetry post with `upsert: true`, and physical locations can be managed via `PUT /api/devices/:deviceId`.
 * **ESP Hardware Liveness & Health Monitoring**:
   * **Status Query (`GET /api/devices/:deviceId/health`)**: Check if an ESP is currently **ON** (online) or **OFF** (offline) based on its last activity and timeout window.
   * **Heartbeat (`POST /api/devices/:deviceId/heartbeat`)**: ESP can send lightweight keep-alive pings.
-  * **Direct HTTP Probe (`POST /api/devices/:deviceId/ping`)**: The backend directly contacts the ESP's onboard `/health` HTTP endpoint with a timeout to verify physical network responsiveness.
-* **Streamlined Telemetry Payload**: Microcontrollers send only: `deviceId` (UUID), `temperature`, `humidity`, `soilMoisture`, and `light`.
+  * **Direct HTTP Probe (`POST /api/devices/:deviceId/ping`)**: The backend contacts the ESP's onboard `/health` endpoint to verify network reachability.
+* **Telemetry Payload**: Supports ISO 8601 timestamps, Unix epoch timestamps, and automatic fallback to server reception timestamp if NTP is still synchronizing on boot.
 * **Real-time WebSockets (`/ws`)**: Instant push updates to dashboards when any sensor reading or heartbeat arrives.
 * **Interactive Live Dashboard**: Built-in web dashboard at `http://localhost:4000/`.
-* **OpenAPI / Swagger UI Docs**: Interactive API documentation at `http://localhost:4000/docs`.
+* **OpenAPI / Swagger UI Docs**: Interactive API documentation at `https://blue-circle.onrender.com/docs`.
 
 ---
 
@@ -40,7 +43,8 @@ Default `.env`:
 ```env
 PORT=4000
 NODE_ENV=development
-MONGODB_URI=mongodb://localhost:27017/green_node
+MONGODB_URI=mongodb+srv://...
+FRONTEND_URL=http://localhost:3000
 CORS_ORIGIN=*
 ```
 
@@ -67,68 +71,14 @@ CORS_ORIGIN=*
   "success": true,
   "data": {
     "deviceId": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
-    "name": "North Greenhouse Node",
-    "location": "Greenhouse Bay 1 - Tomatoes",
+    "name": "Sensor Node a0eebc99",
+    "location": "Unassigned Zone",
     "isOnline": true,
     "status": "online",
     "secondsSinceLastSeen": 8,
     "timeoutThresholdSeconds": 60,
     "ipAddress": "192.168.1.150"
   }
-}
-```
-* **Response when ESP is OFF**:
-```json
-{
-  "success": true,
-  "data": {
-    "deviceId": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
-    "name": "North Greenhouse Node",
-    "location": "Greenhouse Bay 1 - Tomatoes",
-    "isOnline": false,
-    "status": "offline",
-    "secondsSinceLastSeen": 342,
-    "timeoutThresholdSeconds": 60,
-    "ipAddress": "192.168.1.150"
-  }
-}
-```
-
----
-
-### 2. Active Direct HTTP Probe to ESP
-The backend actively sends an HTTP `GET` to `http://<esp-ip>:80/health`:
-* **Endpoint**: `POST /api/devices/:deviceId/ping` (or `GET /api/devices/:deviceId/ping`)
-* **Response**:
-```json
-{
-  "success": true,
-  "data": {
-    "found": true,
-    "isReachable": true,
-    "status": "online",
-    "statusCode": 200,
-    "targetUrl": "http://192.168.1.150:80/health",
-    "latencyMs": 24,
-    "espResponse": {
-      "status": "ok",
-      "uptime": 145020,
-      "freeHeap": 184200
-    }
-  }
-}
-```
-
----
-
-### 3. Heartbeat Route (ESP to Backend)
-ESP can ping this route every 10–30 seconds:
-* **Endpoint**: `POST /api/devices/:deviceId/heartbeat`
-* **Body** *(Optional IP & WiFi signal strength)*:
-```json
-{
-  "rssi": -58,
-  "uptimeSeconds": 1450
 }
 ```
 
@@ -145,113 +95,30 @@ ESP can ping this route every 10–30 seconds:
   "temperature": 25.2,
   "humidity": 64.5,
   "soilMoisture": 48.0,
-  "light": 620
+  "light": 620.0,
+  "espTemperature": 41.5,
+  "wifiSsid": "Greenhouse_2.4G",
+  "timestamp": "2026-11-02T01:50:43Z",
+  "metadata": {
+    "chip": "esp32-c3-supermini",
+    "rssi": -58,
+    "soilRaw": 1280
+  }
 }
 ```
 
 ### Query Latest Reading
-* **Endpoint**: `GET /api/readings/latest`
+* **Endpoint**: `GET /api/readings/latest?deviceId=a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11`
 
 ### 24-Hour Statistics
-* **Endpoint**: `GET /api/readings/stats?hours=24`
+* **Endpoint**: `GET /api/readings/stats?hours=24&deviceId=a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11`
 
 ---
 
-## 🤖 Microcontroller Code Example (ESP32-C3 Super Mini with Health Server)
+## 🤖 Microcontroller Firmware
 
-The firmware is specifically tailored for the **ESP32-C3 Super Mini** in [`esp code/esp_code.ino`](file:///home/zoom/Desktop/green%20node/esp%20code/esp_code.ino):
-* **DHT22** (Temp/Humidity) $\rightarrow$ **GPIO 3**
-* **FC-28 Soil Moisture** (Analog) $\rightarrow$ **GPIO 0** (ADC1_CH0)
-* **LDR Light Sensor** (Analog) $\rightarrow$ **GPIO 1** (ADC1_CH1)
-* **Onboard Status LED** $\rightarrow$ **GPIO 8** (Active LOW)
+Production firmware sketches are located under [`firmware/production_code/`](file:///c:/Users/USER/Desktop/projects/green-node-sever/firmware/production_code/):
+* **FC-28 Soil Moisture Edition**: [`fc28_production.ino`](file:///c:/Users/USER/Desktop/projects/green-node-sever/firmware/production_code/fc28_production/fc28_production.ino)
+* **MD0869 Reference Soil Moisture Edition**: [`md0869_production.ino`](file:///c:/Users/USER/Desktop/projects/green-node-sever/firmware/production_code/md0869_production/md0869_production.ino)
 
-```cpp
-#include <WiFi.h>
-#include <WebServer.h>
-#include <HTTPClient.h>
-#include <ArduinoJson.h>
-
-const char* ssid = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
-const char* serverUrl = "http://10.88.145.39:4000/api/readings";
-
-const char* DEVICE_UUID = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
-
-// ESP32-C3 Super Mini Pin Definitions
-#define FC28_PIN  0       // Soil Moisture (ADC1_CH0)
-#define LDR_PIN   1       // Light Sensor (ADC1_CH1)
-#define DHTPIN    3       // DHT22 Data Pin
-#define LED_PIN   8       // Onboard Blue Status LED (Active LOW)
-
-// Onboard HTTP Server on port 80 for backend health probing
-WebServer healthServer(80);
-
-unsigned long lastSendTime = 0;
-const unsigned long sendInterval = 5000; // Send telemetry every 5 seconds
-
-// Handle GET /health when backend pings the ESP
-void handleHealthRoute() {
-  StaticJsonDocument<128> doc;
-  doc["status"] = "ok";
-  doc["uptimeMs"] = millis();
-  doc["freeHeap"] = ESP.getFreeHeap();
-  doc["wifiRssi"] = WiFi.RSSI();
-
-  String response;
-  serializeJson(doc, response);
-  healthServer.send(200, "application/json", response);
-}
-
-void setup() {
-  Serial.begin(115200);
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-
-  Serial.println("\nWiFi Connected!");
-  Serial.print("ESP IP Address: ");
-  Serial.println(WiFi.localIP());
-
-  // Setup /health route
-  healthServer.on("/health", handleHealthRoute);
-  healthServer.begin();
-  Serial.println("Health HTTP server started on port 80");
-}
-
-void loop() {
-  // Handle incoming HTTP health requests from backend
-  healthServer.handleClient();
-
-  // Send periodic sensor telemetry
-  if (millis() - lastSendTime >= sendInterval) {
-    lastSendTime = millis();
-
-    if (WiFi.status() == WL_CONNECTED) {
-      HTTPClient http;
-      http.begin(serverUrl);
-      http.addHeader("Content-Type", "application/json");
-
-      // Replace with your real analog/digital sensor readings:
-      float temp = 24.5;
-      float hum = 63.0;
-      float soil = 46.5;
-      float light = 580.0;
-
-      StaticJsonDocument<256> doc;
-      doc["deviceId"] = DEVICE_UUID;
-      doc["temperature"] = temp;
-      doc["humidity"] = hum;
-      doc["soilMoisture"] = soil;
-      doc["light"] = light;
-
-      String jsonBody;
-      serializeJson(doc, jsonBody);
-
-      int httpResponseCode = http.POST(jsonBody);
-      http.end();
-    }
-  }
-}
-```
+Both editions integrate brownout protection (`WiFi.setTxPower(WIFI_POWER_11dBm)`), Sri Lanka NTP time synchronization (UTC+5:30), power-gated sensor sampling, and HTTPS POST transmission to `https://blue-circle.onrender.com/api/readings`.

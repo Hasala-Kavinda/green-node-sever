@@ -65,16 +65,19 @@ A comprehensive sensor suite tailored specifically for the ultra-compact **ESP32
 * **Calibration Endpoints**:
   * **Dry Air (0% Moisture)**: Raw ADC $\approx 400$
   * **Saturated Water (100% Moisture)**: Raw ADC $\approx 4095$
+* **Linear Calibration ($y = ax + b$)**:
+  * Embedded support for user calibration slope `a` and offset `b` (`FC28_CAL_A`, `FC28_CAL_B`).
+  * Default initial state `0.0` automatically passes through raw ADC.
 * **Settle & Discharge Times**:
   * **Settling Time**: 20 ms.
   * **Reset / Discharge Time**: 40 ms.
 
 ---
 
-### 5. ⚡ Power-Gating Circuit (Electrolysis Prevention)
+### 5. ⚡ Power-Gating Circuit (Electrolysis & Brownout Prevention)
 * **Assigned Pin**: **`GPIO 2`**.
 * **Why it is needed**: Constant DC voltage on submerged soil probes causes rapid galvanic corrosion and metal leaching, destroying probes within weeks.
-* **How it works**: Both MD0869 and FC-28 VCC pins are powered from `GPIO 2`. The pin is driven `HIGH` only during the brief measurement window (~80 ms) and immediately returned to `LOW` for the remainder of the interval.
+* **How it works**: Both MD0869 and FC-28 VCC pins are powered from `GPIO 2`. The pin is driven `HIGH` only during the brief measurement window (~20–80 ms) and immediately returned to `LOW` before Wi-Fi transmission, preventing simultaneous current spikes that cause ESP32-C3 brownout resets.
 
 ---
 
@@ -84,14 +87,14 @@ A comprehensive sensor suite tailored specifically for the ultra-compact **ESP32
                    ┌───────────────────────┐
                    │   ESP32-C3 SuperMini  │
                    │                       │
-            [5V] --│ 5V                 21 │-- 
-           [GND] --│ GND                20 │-- 
-          [3.3V] --│ 3V3                 9 │-- [BOOT button]
- MD0869 AO (A0) ---│ GPIO 0              8 │-- [Onboard Blue LED]
-  FC-28 AO (A0) ---│ GPIO 1              7 │-- 
-Soil Power-Gate ---│ GPIO 2              6 │-- BH1750 SCL (I2C Clock)
-DHT22 Data (D)  ---│ GPIO 3              5 │-- BH1750 SDA (I2C Data)
-                   │ GPIO 4             10 │-- 
+            [5V] --│ 5V                 21 │-- GPIO 21
+    [Common GND] --│ GND                20 │-- GPIO 20
+      [3.3V Rail]--│ 3V3                 9 │-- GPIO 9 [BOOT button]
+ MD0869 AO (Ref) --│ GPIO 0              8 │-- GPIO 8 [Onboard Blue LED]
+   FC-28 AO (Sec)--│ GPIO 1              7 │-- GPIO 7
+Soil Power-Gate ---│ GPIO 2              6 │-- GPIO 6 ──► BH1750 SCL (I2C Clock)
+   DHT22 Data (D)--│ GPIO 3              5 │-- GPIO 5 ──► BH1750 SDA (I2C Data)
+                   │ GPIO 4             10 │-- GPIO 10
                    │       [USB-C]         │
                    └───────────────────────┘
 ```
@@ -104,11 +107,11 @@ DHT22 Data (D)  ---│ GPIO 3              5 │-- BH1750 SDA (I2C Data)
 | **Power Rails** | GND | **GND** | Shared common ground rail |
 | **MD0869 Soil** | AO | **GPIO 0** | ADC1_CH0 (0–4095) |
 | **FC-28 Soil** | AO | **GPIO 1** | ADC1_CH1 (0–4095) |
-| **Soil Power Rail** | VCC | **GPIO 2** | Switched VCC (Active HIGH during read) |
+| **Soil Power Rail** | VCC | **GPIO 2** | Switched VCC (Active HIGH during read only) |
 | **DHT22** | DATA | **GPIO 3** | Digital I/O |
 | **BH1750** | SDA | **GPIO 5** | I2C Serial Data |
 | **BH1750** | SCL | **GPIO 6** | I2C Serial Clock |
-| **BH1750** | ADDR | **GND** | Hardware address `0x23` |
+| **BH1750** | ADDR | **GND** (or float) | Sets default address `0x23` |
 | **Status LED** | Onboard | **GPIO 8** | Activity indicator (Active LOW) |
 
 ---
@@ -118,21 +121,19 @@ DHT22 Data (D)  ---│ GPIO 3              5 │-- BH1750 SDA (I2C Data)
 1. **ADC1 Exclusivity (WiFi Conflict Prevention)**:
    * When WiFi is transmitting on ESP32 chips, **ADC2 is hardware-disabled**.
    * All analog pins are strictly assigned to **ADC1** (`GPIO 0` and `GPIO 1`).
-2. **Strapping Pins**:
-   * `GPIO 9` is the BOOT strapping pin; avoided to prevent boot interference.
-   * `GPIO 8` controls the onboard blue LED.
+2. **Brownout Mitigation on ESP32-C3 SuperMini**:
+   * The compact onboard 3.3V LDO regulator cannot sustain default +20 dBm RF current bursts (~450mA).
+   * Production sketches cap Wi-Fi RF power via `WiFi.setTxPower(WIFI_POWER_11dBm)` and ensure sensor power-gating is de-energized before transmitting.
 3. **USB CDC On Boot**:
-   * ESP32-C3 SuperMini uses native on-chip USB-CDC instead of a dedicated USB-to-UART bridge chip (like CP2102/CH340).
+   * ESP32-C3 SuperMini uses native on-chip USB-CDC instead of a separate USB-to-UART bridge chip (like CP2102/CH340).
    * **`USB CDC On Boot: Enabled`** must be turned on in Arduino IDE, or `Serial.print()` will produce no output in the Serial Monitor.
 
 ---
 
-## 🧪 Firmware & Test Suite Directory Hierarchy
-
-The ESP code repository is organized into distinct, modular folders, each containing its own dedicated `README.md`:
+## 🧪 Firmware Directory Hierarchy
 
 ```
-esp code/
+firmware/
 ├── README.md                                  <-- Master sensor & hardware guide
 ├── assets/                                    <-- Board schematics & hardware visual diagrams
 │   └── ESPC3SuperMini.png
@@ -140,39 +141,27 @@ esp code/
 ├── unit_tests/                                <-- Standalone individual sensor tests
 │   ├── README.md                              <-- Unit test suite documentation & standards
 │   ├── soil_moisture/                         <-- Comparative test (MD0869 vs FC-28)
-│   │   ├── soil_moisture.ino
-│   │   ├── pin_diagram.md
-│   │   └── soil_moisture_reading_log.txt
 │   ├── soil_moisture_md0869/                  <-- MD0869 standalone test
-│   │   ├── soil_moisture_md0869.ino
-│   │   └── pin_diagram.md
-│   ├── soil_moisture_fc28/                    <-- FC-28 standalone test
-│   │   ├── soil_moisture_fc28.ino
-│   │   └── pin_diagram.md
+│   ├── soil_moisture_fc28/                    <-- FC-28 standalone test (with linear calibration y=ax+b)
 │   ├── dht22/                                 <-- DHT22 Temp & Humidity standalone test
-│   │   ├── dht22.ino
-│   │   └── pin_diagram.md
 │   ├── bh1750/                                <-- BH1750 Ambient Light standalone test
-│   │   ├── bh1750.ino
-│   │   └── pin_diagram.md
 │   ├── wifi_module_test/                      <-- Built-in 2.4GHz Wi-Fi transceiver test
-│   │   ├── wifi_module_test.ino
-│   │   └── pin_diagram.md
 │   └── internal_temperature/                  <-- On-die silicon junction temperature test
-│       ├── internal_temperature.ino
-│       └── pin_diagram.md
 │
 ├── integrated_test/                           <-- Single-sensor hardware integration test
 │   ├── README.md                              <-- Integrated test overview & hardware mapping
 │   ├── integrated_test.ino                    <-- All-in-one local test sketch (no WiFi required)
 │   └── pin_diagram.md                         <-- Hardware pin diagram
 │
-└── final_code/                                <-- Production single-sensor integration firmware
-    ├── README.md                              <-- Comprehensive guide & edition comparison
-    ├── md0869_integration/                   <-- Final code for MD0869 reference soil probe
-    │   └── md0869_integration.ino
-    └── fc28_integration/                     <-- Final code for FC-28 standard soil probe
-        └── fc28_integration.ino
+├── final_code/                                <-- Offline single-sensor integration firmware
+│   ├── README.md                              <-- Comprehensive guide & edition comparison
+│   ├── md0869_integration/                   <-- Local integration for MD0869 reference soil probe
+│   └── fc28_integration/                     <-- Local integration for FC-28 standard soil probe
+│
+└── production_code/                           <-- Cloud-Connected Production Telemetry Firmware
+    ├── README.md                              <-- Brownout guard, TLS, NTP & deployment guide
+    ├── fc28_production/                       <-- Production firmware for FC-28 probe (WiFi + NTP + HTTPS)
+    └── md0869_production/                     <-- Production firmware for MD0869 probe (WiFi + NTP + HTTPS)
 ```
 
 ---
@@ -184,11 +173,14 @@ esp code/
 * **USB CDC On Boot**: **`Enabled`** ⚠️ *(Crucial)*
 * **CPU Frequency**: `160MHz (WiFi)`
 * **Flash Size**: `4MB (32Mb)`
+* **Partition Scheme**: `Default 4MB with spiffs (1.2MB APP)` or `Minimal SPIFFS (1.9MB APP with OTA)`
 * **Upload Speed**: `921600`
 * **Baud Rate**: `115200`
 
 ### Required Libraries
 Install via **Library Manager** (`Ctrl+Shift+I`):
-1. **DHT sensor library** by *Adafruit* (requires *Adafruit Unified Sensor*)
-2. **BH1750** by *Christopher Laws*
-*(Wire, WiFi, WebServer, and HTTPClient are bundled within the standard ESP32 Arduino Core).*
+1. **`ArduinoJson`** by *Benoît Blanchon* (v6 or v7)
+2. **`DHT sensor library`** by *Adafruit* (requires *Adafruit Unified Sensor*)
+3. **`Adafruit Unified Sensor`** by *Adafruit*
+4. **`BH1750`** by *Christopher Laws*
+*(WiFi, WiFiClientSecure, HTTPClient, Wire, and time are included in the ESP32 Arduino Core).*

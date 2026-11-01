@@ -1,6 +1,6 @@
 # 🌿 Green Node - Next.js Telemetry Frontend
 
-A modern, Apple-inspired Next.js application for real-time greenhouse and environmental monitoring with authentication.
+A modern, Apple-inspired Next.js 14 application for real-time greenhouse and environmental monitoring with authentication.
 
 ---
 
@@ -37,9 +37,9 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 3. Configure the project:
    * **Framework Preset**: `Next.js`
    * **Root Directory**: `green-node-web/frontend`
-4. Set Environment Variables (Optional):
-   * `NEXT_PUBLIC_API_URL`: Your Render backend URL (e.g. `https://your-backend.onrender.com`).
-   * *Note*: If not provided during build, you can also change the backend URL directly in the web UI using the top-right Settings icon (`⚙️`).
+4. Set Environment Variables:
+   * `NEXT_PUBLIC_API_URL`: `https://blue-circle.onrender.com`
+   * *Note*: You can also change the backend URL directly in the web UI at runtime using the top-right Settings icon (`⚙️`).
 5. Click **Deploy**.
 
 ---
