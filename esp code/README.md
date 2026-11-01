@@ -127,40 +127,45 @@ DHT22 Data (D)  ---│ GPIO 3              5 │-- BH1750 SDA (I2C Data)
 
 ---
 
-## 🧪 Unit Test Suite Structure
+## 🧪 Firmware & Test Suite Directory Hierarchy
 
-Every sensor has an isolated standalone unit test sketch and dedicated wiring diagram (`pin_diagram.md`):
+The ESP code repository is organized into three distinct, equal-tier folders, each containing its own dedicated `README.md`:
 
 ```
 esp code/
 ├── ESPC3SuperMini.png
-├── README.md                                  <-- Master sensor documentation
-├── esp_code.ino                               <-- Main WiFi & HTTP telemetry firmware
-├── final_code/                                <-- Final production single-sensor integration codes
-│   ├── README.md                              <-- Documentation for final integration codes
-│   ├── md0869_integration/                   <-- Final code with MD0869 reference soil probe
-│   │   └── md0869_integration.ino
-│   └── fc28_integration/                     <-- Final code with FC-28 standard soil probe
-│       └── fc28_integration.ino
-└── unit_tests/
-    ├── soil_moisture/                         <-- Dual sensor comparison test (MD0869 vs FC-28)
-    │   ├── soil_moisture.ino
-    │   └── pin_diagram.md
-    ├── soil_moisture_md0869/                  <-- MD0869 standalone test
-    │   ├── soil_moisture_md0869.ino
-    │   └── pin_diagram.md
-    ├── soil_moisture_fc28/                    <-- FC-28 standalone test
-    │   ├── soil_moisture_fc28.ino
-    │   └── pin_diagram.md
-    ├── dht22/                                 <-- DHT22 Temperature & Humidity standalone test
-    │   ├── dht22.ino
-    │   └── pin_diagram.md
-    ├── bh1750/                                <-- BH1750 Ambient Light standalone test
-    │   ├── bh1750.ino
-    │   └── pin_diagram.md
-    └── integrated_test/                       <-- Single-soil multi-sensor integrated test
-        ├── integrated_test.ino
-        └── pin_diagram.md
+├── README.md                                  <-- Master sensor & hardware guide
+├── esp_code.ino                               <-- Legacy WiFi & HTTP telemetry firmware
+│
+├── unit_tests/                                <-- Standalone individual sensor tests
+│   ├── README.md                              <-- Unit test suite documentation & standards
+│   ├── soil_moisture/                         <-- Comparative test (MD0869 vs FC-28)
+│   │   ├── soil_moisture.ino
+│   │   └── pin_diagram.md
+│   ├── soil_moisture_md0869/                  <-- MD0869 standalone test
+│   │   ├── soil_moisture_md0869.ino
+│   │   └── pin_diagram.md
+│   ├── soil_moisture_fc28/                    <-- FC-28 standalone test
+│   │   ├── soil_moisture_fc28.ino
+│   │   └── pin_diagram.md
+│   ├── dht22/                                 <-- DHT22 Temp & Humidity standalone test
+│   │   ├── dht22.ino
+│   │   └── pin_diagram.md
+│   └── bh1750/                                <-- BH1750 Ambient Light standalone test
+│       ├── bh1750.ino
+│       └── pin_diagram.md
+│
+├── integrated_test/                           <-- Single-sensor hardware integration test
+│   ├── README.md                              <-- Integrated test overview & hardware mapping
+│   ├── integrated_test.ino                    <-- All-in-one local test sketch (no WiFi required)
+│   └── pin_diagram.md                         <-- Hardware pin diagram
+│
+└── final_code/                                <-- Production single-sensor integration firmware
+    ├── README.md                              <-- Comprehensive guide & edition comparison
+    ├── md0869_integration/                   <-- Final code for MD0869 reference soil probe
+    │   └── md0869_integration.ino
+    └── fc28_integration/                     <-- Final code for FC-28 standard soil probe
+        └── fc28_integration.ino
 ```
 
 ---
