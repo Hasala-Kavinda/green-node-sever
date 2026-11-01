@@ -129,19 +129,20 @@ DHT22 Data (D)  ---│ GPIO 3              5 │-- BH1750 SDA (I2C Data)
 
 ## 🧪 Firmware & Test Suite Directory Hierarchy
 
-The ESP code repository is organized into three distinct, equal-tier folders, each containing its own dedicated `README.md`:
+The ESP code repository is organized into distinct, modular folders, each containing its own dedicated `README.md`:
 
 ```
 esp code/
-├── ESPC3SuperMini.png
 ├── README.md                                  <-- Master sensor & hardware guide
-├── esp_code.ino                               <-- Legacy WiFi & HTTP telemetry firmware
+├── assets/                                    <-- Board schematics & hardware visual diagrams
+│   └── ESPC3SuperMini.png
 │
 ├── unit_tests/                                <-- Standalone individual sensor tests
 │   ├── README.md                              <-- Unit test suite documentation & standards
 │   ├── soil_moisture/                         <-- Comparative test (MD0869 vs FC-28)
 │   │   ├── soil_moisture.ino
-│   │   └── pin_diagram.md
+│   │   ├── pin_diagram.md
+│   │   └── soil_moisture_reading_log.txt
 │   ├── soil_moisture_md0869/                  <-- MD0869 standalone test
 │   │   ├── soil_moisture_md0869.ino
 │   │   └── pin_diagram.md
@@ -160,12 +161,16 @@ esp code/
 │   ├── integrated_test.ino                    <-- All-in-one local test sketch (no WiFi required)
 │   └── pin_diagram.md                         <-- Hardware pin diagram
 │
-└── final_code/                                <-- Production single-sensor integration firmware
-    ├── README.md                              <-- Comprehensive guide & edition comparison
-    ├── md0869_integration/                   <-- Final code for MD0869 reference soil probe
-    │   └── md0869_integration.ino
-    └── fc28_integration/                     <-- Final code for FC-28 standard soil probe
-        └── fc28_integration.ino
+├── final_code/                                <-- Production single-sensor integration firmware
+│   ├── README.md                              <-- Comprehensive guide & edition comparison
+│   ├── md0869_integration/                   <-- Final code for MD0869 reference soil probe
+│   │   └── md0869_integration.ino
+│   └── fc28_integration/                     <-- Final code for FC-28 standard soil probe
+│       └── fc28_integration.ino
+│
+└── esp_code/                                  <-- Full wireless telemetry & HTTP health probe
+    ├── README.md                              <-- WiFi & server endpoint documentation
+    └── esp_code.ino                           <-- Production wireless IoT telemetry firmware
 ```
 
 ---
