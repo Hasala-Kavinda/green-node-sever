@@ -24,7 +24,7 @@
 // --- Network & Backend Configuration ---
 const char* WIFI_SSID                               = "Malith's A55";                                           // Wi-Fi Network Name
 const char* WIFI_PASSWORD                           = "malith26";                                               // Wi-Fi Password
-const char* BACKEND_URL                             = "https://green-node-backend-lskq.onrender.com/api/readings"; // Target endpoint (HTTPS)
+const char* BACKEND_URL                             = "https://blue-circle.onrender.com/api/readings";             // Target endpoint (HTTPS)
 const char* DEVICE_ID                               = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";                   // Registered Device UUID
 
 // --- Telemetry & Timing Intervals ---

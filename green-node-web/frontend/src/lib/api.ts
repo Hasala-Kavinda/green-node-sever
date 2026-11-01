@@ -1,5 +1,5 @@
 // Dynamic Backend API Client
-export const DEFAULT_API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+export const DEFAULT_API_URL = process.env.NEXT_PUBLIC_API_URL || "https://blue-circle.onrender.com";
 
 export function getBackendUrl(): string {
   if (typeof window !== "undefined") {
