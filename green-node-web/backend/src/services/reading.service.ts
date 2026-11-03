@@ -536,16 +536,35 @@ export class ReadingService {
     }).lean();
 
     let onlineCount = 0;
-    const deviceDetails = devices.map((d) => {
-      const health = this.computeHealth(d);
-      if (health.isOnline) onlineCount++;
-      return {
-        ...d,
-        status: health.status,
-        isOnline: health.isOnline,
-        secondsSinceLastSeen: health.secondsSinceLastSeen
-      };
-    });
+    const deviceDetails = await Promise.all(
+      devices.map(async (d: any) => {
+        let latestReading = d.latestReading;
+        if (!latestReading) {
+          const lastR = await Reading.findOne({ deviceId: d.deviceId.toLowerCase() }).sort({ timestamp: -1 }).lean();
+          if (lastR) {
+            latestReading = {
+              temperature: lastR.temperature,
+              humidity: lastR.humidity,
+              soilMoisture: lastR.soilMoisture,
+              light: lastR.light,
+              espTemperature: lastR.espTemperature,
+              wifiSsid: lastR.wifiSsid,
+              timestamp: lastR.timestamp
+            };
+            Device.updateOne({ _id: d._id }, { $set: { latestReading } }).exec();
+          }
+        }
+        const health = this.computeHealth(d);
+        if (health.isOnline) onlineCount++;
+        return {
+          ...d,
+          latestReading,
+          status: health.status,
+          isOnline: health.isOnline,
+          secondsSinceLastSeen: health.secondsSinceLastSeen
+        };
+      })
+    );
 
     let totalTemp = 0, countTemp = 0;
     let totalHum = 0, countHum = 0;
@@ -763,15 +782,34 @@ export class ReadingService {
     if (companyId) filter.companyId = companyId.toLowerCase();
 
     const devices = await Device.find(filter).sort({ lastSeen: -1 }).lean();
-    return devices.map((device) => {
-      const health = this.computeHealth(device);
-      return {
-        ...device,
-        status: health.status,
-        isOnline: health.isOnline,
-        secondsSinceLastSeen: health.secondsSinceLastSeen
-      };
-    });
+    return Promise.all(
+      devices.map(async (device: any) => {
+        let latestReading = device.latestReading;
+        if (!latestReading) {
+          const lastR = await Reading.findOne({ deviceId: device.deviceId.toLowerCase() }).sort({ timestamp: -1 }).lean();
+          if (lastR) {
+            latestReading = {
+              temperature: lastR.temperature,
+              humidity: lastR.humidity,
+              soilMoisture: lastR.soilMoisture,
+              light: lastR.light,
+              espTemperature: lastR.espTemperature,
+              wifiSsid: lastR.wifiSsid,
+              timestamp: lastR.timestamp
+            };
+            Device.updateOne({ _id: device._id }, { $set: { latestReading } }).exec();
+          }
+        }
+        const health = this.computeHealth(device);
+        return {
+          ...device,
+          latestReading,
+          status: health.status,
+          isOnline: health.isOnline,
+          secondsSinceLastSeen: health.secondsSinceLastSeen
+        };
+      })
+    );
   }
 
   /**

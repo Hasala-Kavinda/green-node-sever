@@ -250,6 +250,33 @@ export async function registerDevice(data: {
   return json.data;
 }
 
+export async function fetchReadings(options: {
+  deviceId?: string;
+  greenhouseId?: string;
+  companyId?: string;
+  limit?: number;
+  sortBy?: string;
+  sortOrder?: "asc" | "desc";
+}): Promise<Reading[]> {
+  try {
+    const params = new URLSearchParams();
+    if (options.deviceId) params.append("deviceId", options.deviceId);
+    if (options.greenhouseId) params.append("greenhouseId", options.greenhouseId);
+    if (options.companyId) params.append("companyId", options.companyId);
+    if (options.limit) params.append("limit", options.limit.toString());
+    if (options.sortBy) params.append("sortBy", options.sortBy);
+    if (options.sortOrder) params.append("sortOrder", options.sortOrder);
+
+    const queryStr = params.toString() ? `?${params.toString()}` : "";
+    const res = await fetch(`${getBackendUrl()}/api/readings${queryStr}`);
+    if (!res.ok) return [];
+    const json = await res.json();
+    return json.data || [];
+  } catch {
+    return [];
+  }
+}
+
 export async function fetchLatestReading(deviceId?: string, greenhouseId?: string): Promise<Reading | null> {
   const params = new URLSearchParams();
   if (deviceId) params.append("deviceId", deviceId);

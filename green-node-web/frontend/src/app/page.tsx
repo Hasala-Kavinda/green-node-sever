@@ -13,6 +13,7 @@ import {
   fetchDevices,
   registerDevice,
   deleteDevice,
+  fetchReadings,
   fetchLatestReading,
   fetchStats,
   fetchLogs,
@@ -146,6 +147,12 @@ export default function DashboardPage() {
   const [copiedUuid, setCopiedUuid] = useState<boolean>(false);
 
   const socketRef = useRef<WebSocket | null>(null);
+  const focusedDeviceIdRef = useRef<string | null>(focusedDeviceId);
+
+  // Keep focusedDeviceIdRef updated for WebSocket and async closures
+  useEffect(() => {
+    focusedDeviceIdRef.current = focusedDeviceId;
+  }, [focusedDeviceId]);
 
   // Auth Protection
   useEffect(() => {
@@ -153,6 +160,37 @@ export default function DashboardPage() {
       router.push("/login");
     }
   }, [isAuthenticated, isLoading, router]);
+
+  // Restore selections and cached telemetry immediately from localStorage
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const savedCompany = localStorage.getItem("green_node_selected_company");
+    if (savedCompany) setSelectedCompanyId(savedCompany);
+
+    const savedGh = localStorage.getItem("green_node_active_greenhouse");
+    if (savedGh) setActiveGreenhouseId(savedGh);
+
+    const savedDev = localStorage.getItem("green_node_focused_device");
+    if (savedDev) {
+      setFocusedDeviceId(savedDev);
+      try {
+        const cachedReadings = localStorage.getItem(`green_node_readings_${savedDev}`);
+        if (cachedReadings) {
+          const parsed = JSON.parse(cachedReadings);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setRecentReadings(parsed);
+            setFocusedLatestReading(parsed[0]);
+          }
+        }
+      } catch {}
+    }
+
+    const savedFilter = localStorage.getItem("green_node_device_filter") as "all" | "current";
+    if (savedFilter === "all" || savedFilter === "current") {
+      setDeviceViewFilter(savedFilter);
+    }
+  }, []);
 
   // Initial Data Load
   useEffect(() => {
@@ -181,10 +219,18 @@ export default function DashboardPage() {
       }
 
       if (ghs.length > 0) {
-        const found = ghs.find((g) => g.greenhouseId === activeGreenhouseId);
-        if (!found) {
+        const savedGh = typeof window !== "undefined" ? localStorage.getItem("green_node_active_greenhouse") : null;
+        const targetGhId = savedGh || activeGreenhouseId;
+        const found = ghs.find((g) => g.greenhouseId === targetGhId);
+        if (found) {
+          setActiveGreenhouseId(found.greenhouseId);
+        } else {
           const ghWithDevs = ghs.find((g) => devs.some((d) => d.greenhouseId === g.greenhouseId));
-          setActiveGreenhouseId(ghWithDevs ? ghWithDevs.greenhouseId : ghs[0].greenhouseId);
+          const chosenGh = ghWithDevs ? ghWithDevs.greenhouseId : ghs[0].greenhouseId;
+          setActiveGreenhouseId(chosenGh);
+          if (typeof window !== "undefined") {
+            localStorage.setItem("green_node_active_greenhouse", chosenGh);
+          }
         }
       }
     } catch {
@@ -214,16 +260,34 @@ export default function DashboardPage() {
       setAllDevices(devs);
       if (overview) {
         setActiveGreenhouse(overview);
-        setGreenhouseDevices(overview.devices || []);
+        const ghDevs = overview.devices || [];
+        setGreenhouseDevices(ghDevs);
 
-        if (overview.devices && overview.devices.length > 0) {
-          const firstDev = overview.devices[0];
-          setFocusedDeviceId(firstDev.deviceId);
-          loadFocusedNodeData(firstDev.deviceId);
-        } else if (devs.length > 0 && !focusedDeviceId) {
-          setFocusedDeviceId(devs[0].deviceId);
-          loadFocusedNodeData(devs[0].deviceId);
-        } else if (overview.devices?.length === 0 && devs.length === 0) {
+        // Preserve current focused device or restore saved device if valid
+        const savedDevId = typeof window !== "undefined" ? localStorage.getItem("green_node_focused_device") : null;
+        const targetId = focusedDeviceId || savedDevId;
+
+        const devInGh = ghDevs.find((d) => d.deviceId === targetId);
+        const devInAll = devs.find((d) => d.deviceId === targetId);
+
+        let chosenDeviceId: string | null = null;
+        if (devInGh) {
+          chosenDeviceId = devInGh.deviceId;
+        } else if (ghDevs.length > 0) {
+          chosenDeviceId = ghDevs[0].deviceId;
+        } else if (devInAll) {
+          chosenDeviceId = devInAll.deviceId;
+        } else if (devs.length > 0) {
+          chosenDeviceId = devs[0].deviceId;
+        }
+
+        if (chosenDeviceId) {
+          setFocusedDeviceId(chosenDeviceId);
+          if (typeof window !== "undefined") {
+            localStorage.setItem("green_node_focused_device", chosenDeviceId);
+          }
+          await loadFocusedNodeData(chosenDeviceId);
+        } else {
           setFocusedDeviceId(null);
           setFocusedLatestReading(null);
           setRecentReadings([]);
@@ -236,14 +300,32 @@ export default function DashboardPage() {
 
   const loadFocusedNodeData = async (devId: string) => {
     try {
-      const [reading, stats] = await Promise.all([
+      const [reading, stats, readings] = await Promise.all([
         fetchLatestReading(devId),
         fetchStats(devId, 24, activeGreenhouseId),
+        fetchReadings({ deviceId: devId, limit: 30, sortBy: "timestamp", sortOrder: "desc" }),
       ]);
-      if (reading) {
-        setFocusedLatestReading(reading);
-        setRecentReadings((prev) => [reading, ...prev.filter((r) => r.timestamp !== reading.timestamp)].slice(0, 30));
+
+      const effectiveLatest = reading || (readings && readings.length > 0 ? readings[0] : null);
+      if (effectiveLatest) {
+        setFocusedLatestReading(effectiveLatest);
+        if (typeof window !== "undefined") {
+          localStorage.setItem(`green_node_latest_${devId}`, JSON.stringify(effectiveLatest));
+        }
       }
+
+      if (readings && readings.length > 0) {
+        setRecentReadings(readings);
+        if (typeof window !== "undefined") {
+          localStorage.setItem(`green_node_readings_${devId}`, JSON.stringify(readings));
+        }
+      } else if (effectiveLatest) {
+        setRecentReadings([effectiveLatest]);
+        if (typeof window !== "undefined") {
+          localStorage.setItem(`green_node_readings_${devId}`, JSON.stringify([effectiveLatest]));
+        }
+      }
+
       setStatsData(stats);
     } catch (err) {
       console.error("Error loading node telemetry:", err);
@@ -291,43 +373,49 @@ export default function DashboardPage() {
           if (payload.event === "new_reading" && payload.data) {
             const reading: Reading = payload.data;
 
-            if (reading.greenhouseId === activeGreenhouseId) {
-              setGreenhouseDevices((prev) =>
-                prev.map((dev) =>
-                  dev.deviceId === reading.deviceId
-                    ? {
-                        ...dev,
-                        status: "online",
-                        isOnline: true,
-                        lastSeen: reading.timestamp,
-                        latestReading: {
-                          temperature: reading.temperature,
-                          humidity: reading.humidity,
-                          soilMoisture: reading.soilMoisture,
-                          light: reading.light,
-                          espTemperature: reading.espTemperature,
-                          wifiSsid: reading.wifiSsid,
-                          timestamp: reading.timestamp,
-                        },
-                      }
-                    : dev
-                )
-              );
+            const updateDeviceItem = (dev: Device) =>
+              dev.deviceId === reading.deviceId
+                ? {
+                    ...dev,
+                    status: "online" as const,
+                    isOnline: true,
+                    lastSeen: reading.timestamp,
+                    latestReading: {
+                      temperature: reading.temperature,
+                      humidity: reading.humidity,
+                      soilMoisture: reading.soilMoisture,
+                      light: reading.light,
+                      espTemperature: reading.espTemperature,
+                      wifiSsid: reading.wifiSsid,
+                      timestamp: reading.timestamp,
+                    },
+                  }
+                : dev;
 
-              if (!focusedDeviceId || reading.deviceId === focusedDeviceId) {
-                setFocusedLatestReading(reading);
-                setRecentReadings((prev) => [reading, ...prev].slice(0, 30));
-              }
+            setGreenhouseDevices((prev) => prev.map(updateDeviceItem));
+            setAllDevices((prev) => prev.map(updateDeviceItem));
+
+            const currentFocusId = focusedDeviceIdRef.current;
+            if (!currentFocusId || reading.deviceId === currentFocusId) {
+              setFocusedLatestReading(reading);
+              setRecentReadings((prev) => {
+                const nextReadings = [reading, ...prev.filter((r) => r.timestamp !== reading.timestamp)].slice(0, 30);
+                if (typeof window !== "undefined") {
+                  localStorage.setItem(`green_node_readings_${reading.deviceId}`, JSON.stringify(nextReadings));
+                  localStorage.setItem(`green_node_latest_${reading.deviceId}`, JSON.stringify(reading));
+                }
+                return nextReadings;
+              });
             }
           } else if (payload.event === "device_heartbeat") {
-            if (payload.data?.greenhouseId === activeGreenhouseId) {
-              setGreenhouseDevices((prev) =>
-                prev.map((dev) =>
-                  dev.deviceId === payload.data.deviceId
-                    ? { ...dev, status: "online", isOnline: true, lastSeen: payload.data.lastSeen }
-                    : dev
-                )
-              );
+            const heartbeatDev = payload.data;
+            if (heartbeatDev?.deviceId) {
+              const updateHb = (dev: Device) =>
+                dev.deviceId === heartbeatDev.deviceId
+                  ? { ...dev, status: "online" as const, isOnline: true, lastSeen: heartbeatDev.lastSeen }
+                  : dev;
+              setGreenhouseDevices((prev) => prev.map(updateHb));
+              setAllDevices((prev) => prev.map(updateHb));
             }
           }
         } catch {
@@ -437,6 +525,11 @@ export default function DashboardPage() {
       await loadGreenhouseData(newDeviceGreenhouseId);
       setActiveGreenhouseId(newDeviceGreenhouseId);
       setFocusedDeviceId(dev.deviceId);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("green_node_active_greenhouse", newDeviceGreenhouseId);
+        localStorage.setItem("green_node_focused_device", dev.deviceId);
+      }
+      await loadFocusedNodeData(dev.deviceId);
 
       setShowProvisionedSuccess({
         deviceId: dev.deviceId,
@@ -481,6 +574,13 @@ export default function DashboardPage() {
     }
     try {
       await deleteDevice(dev.deviceId);
+      if (dev.deviceId === focusedDeviceId) {
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("green_node_focused_device");
+          localStorage.removeItem(`green_node_readings_${dev.deviceId}`);
+          localStorage.removeItem(`green_node_latest_${dev.deviceId}`);
+        }
+      }
       setFeedbackMsg({
         type: "success",
         text: `Sensor module "${dev.name}" unregistered successfully.`,
@@ -510,8 +610,9 @@ export default function DashboardPage() {
       return;
     }
     try {
+      const targetDevId = focusedDeviceId;
       await sendTestReading({
-        deviceId: focusedDeviceId,
+        deviceId: targetDevId,
         temperature: parseFloat((23 + Math.random() * 5).toFixed(2)),
         humidity: parseFloat((55 + Math.random() * 15).toFixed(2)),
         soilMoisture: parseFloat((45 + Math.random() * 25).toFixed(2)),
@@ -521,7 +622,8 @@ export default function DashboardPage() {
         timestamp: new Date().toISOString(),
         metadata: { chip: "esp32-c3-supermini", rssi: -62 },
       });
-      loadGreenhouseData(activeGreenhouseId);
+      await loadFocusedNodeData(targetDevId);
+      await loadGreenhouseData(activeGreenhouseId);
       loadLogs();
       setFeedbackMsg({ type: "success", text: "Sample telemetry ingested & verified!" });
       setTimeout(() => setFeedbackMsg(null), 3000);
@@ -673,11 +775,17 @@ export default function DashboardPage() {
                 value={selectedCompanyId}
                 onChange={(e) => {
                   setSelectedCompanyId(e.target.value);
+                  if (typeof window !== "undefined") {
+                    localStorage.setItem("green_node_selected_company", e.target.value);
+                  }
                   const matchingGhs = e.target.value === "all"
                     ? greenhouses
                     : greenhouses.filter((g) => g.companyId === e.target.value);
                   if (matchingGhs.length > 0) {
                     setActiveGreenhouseId(matchingGhs[0].greenhouseId);
+                    if (typeof window !== "undefined") {
+                      localStorage.setItem("green_node_active_greenhouse", matchingGhs[0].greenhouseId);
+                    }
                   }
                 }}
                 className="bg-transparent text-xs text-white focus:outline-none cursor-pointer max-w-[150px] truncate"
@@ -696,7 +804,12 @@ export default function DashboardPage() {
               <Warehouse className="w-3.5 h-3.5 text-teal-400" />
               <select
                 value={activeGreenhouseId}
-                onChange={(e) => setActiveGreenhouseId(e.target.value)}
+                onChange={(e) => {
+                  setActiveGreenhouseId(e.target.value);
+                  if (typeof window !== "undefined") {
+                    localStorage.setItem("green_node_active_greenhouse", e.target.value);
+                  }
+                }}
                 className="bg-transparent text-xs text-white focus:outline-none cursor-pointer font-medium max-w-[180px] truncate"
               >
                 {filteredGreenhouses.map((g) => (
@@ -879,7 +992,12 @@ export default function DashboardPage() {
               <div className="flex items-center bg-[#141417] border border-[#282830] rounded-xl p-1 text-xs">
                 <button
                   type="button"
-                  onClick={() => setDeviceViewFilter("all")}
+                  onClick={() => {
+                    setDeviceViewFilter("all");
+                    if (typeof window !== "undefined") {
+                      localStorage.setItem("green_node_device_filter", "all");
+                    }
+                  }}
                   className={`px-3 py-1.5 rounded-lg font-medium transition ${
                     deviceViewFilter === "all"
                       ? "bg-emerald-500 text-white shadow-sm"
@@ -890,7 +1008,12 @@ export default function DashboardPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setDeviceViewFilter("current")}
+                  onClick={() => {
+                    setDeviceViewFilter("current");
+                    if (typeof window !== "undefined") {
+                      localStorage.setItem("green_node_device_filter", "current");
+                    }
+                  }}
                   className={`px-3 py-1.5 rounded-lg font-medium transition ${
                     deviceViewFilter === "current"
                       ? "bg-emerald-500 text-white shadow-sm"
@@ -982,9 +1105,15 @@ export default function DashboardPage() {
                       key={dev.deviceId}
                       onClick={() => {
                         setFocusedDeviceId(dev.deviceId);
+                        if (typeof window !== "undefined") {
+                          localStorage.setItem("green_node_focused_device", dev.deviceId);
+                        }
                         loadFocusedNodeData(dev.deviceId);
                         if (dev.greenhouseId && dev.greenhouseId !== activeGreenhouseId) {
                           setActiveGreenhouseId(dev.greenhouseId);
+                          if (typeof window !== "undefined") {
+                            localStorage.setItem("green_node_active_greenhouse", dev.greenhouseId);
+                          }
                         }
                       }}
                       className={`bg-[#141417] border rounded-2xl p-5 cursor-pointer transition relative group ${

@@ -105,7 +105,7 @@ export const batchReadingsSchema = z.object({
 });
 
 export const queryReadingsSchema = z.object({
-  deviceId: z.string().uuid().optional(),
+  deviceId: z.string().optional(),
   greenhouseId: z.string().optional(),
   companyId: z.string().optional(),
   companyLocation: z.string().optional(),
