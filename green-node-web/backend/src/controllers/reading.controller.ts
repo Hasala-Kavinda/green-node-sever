@@ -501,6 +501,33 @@ export class ReadingController {
   }
 
   /**
+   * DELETE /api/devices/:deviceId
+   */
+  static async deleteDevice(req: Request, res: Response): Promise<void> {
+    try {
+      const deviceId = Array.isArray(req.params.deviceId) ? req.params.deviceId[0] : req.params.deviceId;
+      const device = await ReadingService.deleteDevice(deviceId);
+      if (!device) {
+        res.status(404).json({
+          success: false,
+          error: `Device "${deviceId}" not found`
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        message: 'Sensor module unregistered successfully'
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        error: error.message || 'Internal Server Error'
+      });
+    }
+  }
+
+  /**
    * POST /api/devices/:deviceId/heartbeat
    */
   static async recordHeartbeat(req: Request, res: Response): Promise<void> {

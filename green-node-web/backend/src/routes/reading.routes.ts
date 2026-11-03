@@ -31,6 +31,7 @@ router.post('/devices', ReadingController.registerDevice);
 router.get('/devices', ReadingController.getDevices);
 router.get('/devices/:deviceId', ReadingController.getDeviceById);
 router.put('/devices/:deviceId', ReadingController.updateDevice);
+router.delete('/devices/:deviceId', ReadingController.deleteDevice);
 
 // ESP Health & Liveness Checking
 router.post('/devices/:deviceId/heartbeat', ReadingController.recordHeartbeat); // ESP reports it is alive

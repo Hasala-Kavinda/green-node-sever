@@ -775,6 +775,20 @@ export class ReadingService {
   }
 
   /**
+   * Device Management: Delete / unregister a device
+   */
+  static async deleteDevice(deviceId: string) {
+    const dev = await Device.findOneAndDelete({ deviceId: deviceId.toLowerCase() });
+    if (dev) {
+      await Greenhouse.updateMany(
+        { assignedDeviceIds: deviceId.toLowerCase() },
+        { $pull: { assignedDeviceIds: deviceId.toLowerCase() } }
+      );
+    }
+    return dev;
+  }
+
+  /**
    * Device Management: Get single device by UUID with health
    */
   static async getDeviceById(deviceId: string) {

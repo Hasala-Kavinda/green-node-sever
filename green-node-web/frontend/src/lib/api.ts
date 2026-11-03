@@ -303,3 +303,15 @@ export async function sendTestReading(payload: Partial<Reading>) {
   });
   return res.json();
 }
+
+
+export async function deleteDevice(deviceId: string): Promise<boolean> {
+  const res = await fetch(`${getBackendUrl()}/api/devices/${encodeURIComponent(deviceId)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || "Failed to unregister sensor module");
+  }
+  return true;
+}

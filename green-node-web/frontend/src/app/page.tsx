@@ -12,6 +12,7 @@ import {
   assignDeviceToGreenhouse,
   fetchDevices,
   registerDevice,
+  deleteDevice,
   fetchLatestReading,
   fetchStats,
   fetchLogs,
@@ -89,6 +90,9 @@ export default function DashboardPage() {
   const [activeGreenhouseId, setActiveGreenhouseId] = useState<string>("greenhouse-01");
   const [activeGreenhouse, setActiveGreenhouse] = useState<Greenhouse | null>(null);
   const [greenhouseDevices, setGreenhouseDevices] = useState<Device[]>([]);
+  const [allDevices, setAllDevices] = useState<Device[]>([]);
+  const [deviceViewFilter, setDeviceViewFilter] = useState<"all" | "current">("all");
+  const [copiedDeviceId, setCopiedDeviceId] = useState<string | null>(null);
 
   // Active Device Drilldown (Optional focus on a specific node within greenhouse)
   const [focusedDeviceId, setFocusedDeviceId] = useState<string | null>(null);
@@ -167,9 +171,10 @@ export default function DashboardPage() {
 
   const loadHierarchy = async () => {
     try {
-      const [comps, ghs] = await Promise.all([fetchCompanies(), fetchGreenhouses()]);
+      const [comps, ghs, devs] = await Promise.all([fetchCompanies(), fetchGreenhouses(), fetchDevices()]);
       setCompanies(comps);
       setGreenhouses(ghs);
+      setAllDevices(devs);
 
       if (comps.length > 0 && !newGhCompanyId) {
         setNewGhCompanyId(comps[0].companyId);
@@ -178,7 +183,8 @@ export default function DashboardPage() {
       if (ghs.length > 0) {
         const found = ghs.find((g) => g.greenhouseId === activeGreenhouseId);
         if (!found) {
-          setActiveGreenhouseId(ghs[0].greenhouseId);
+          const ghWithDevs = ghs.find((g) => devs.some((d) => d.greenhouseId === g.greenhouseId));
+          setActiveGreenhouseId(ghWithDevs ? ghWithDevs.greenhouseId : ghs[0].greenhouseId);
         }
       }
     } catch {
@@ -201,7 +207,11 @@ export default function DashboardPage() {
 
   const loadGreenhouseData = async (ghId: string) => {
     try {
-      const overview = await fetchGreenhouseOverview(ghId);
+      const [overview, devs] = await Promise.all([
+        fetchGreenhouseOverview(ghId),
+        fetchDevices(),
+      ]);
+      setAllDevices(devs);
       if (overview) {
         setActiveGreenhouse(overview);
         setGreenhouseDevices(overview.devices || []);
@@ -210,7 +220,10 @@ export default function DashboardPage() {
           const firstDev = overview.devices[0];
           setFocusedDeviceId(firstDev.deviceId);
           loadFocusedNodeData(firstDev.deviceId);
-        } else {
+        } else if (devs.length > 0 && !focusedDeviceId) {
+          setFocusedDeviceId(devs[0].deviceId);
+          loadFocusedNodeData(devs[0].deviceId);
+        } else if (overview.devices?.length === 0 && devs.length === 0) {
           setFocusedDeviceId(null);
           setFocusedLatestReading(null);
           setRecentReadings([]);
@@ -448,7 +461,38 @@ export default function DashboardPage() {
   const handleCopyUuid = (uuid: string) => {
     navigator.clipboard.writeText(uuid);
     setCopiedUuid(true);
-    setTimeout(() => setCopiedUuid(false), 2500);
+    setCopiedDeviceId(uuid);
+    setFeedbackMsg({ type: "success", text: `Copied UUID: ${uuid}` });
+    setTimeout(() => {
+      setCopiedUuid(false);
+      setCopiedDeviceId(null);
+    }, 2500);
+    setTimeout(() => setFeedbackMsg(null), 3000);
+  };
+
+  const handleDeleteDevice = async (e: React.MouseEvent, dev: Device) => {
+    e.stopPropagation();
+    if (
+      !confirm(
+        `Are you sure you want to unregister sensor module "${dev.name}" (${dev.deviceId})? Unregistered modules will be rejected with 403 Forbidden.`
+      )
+    ) {
+      return;
+    }
+    try {
+      await deleteDevice(dev.deviceId);
+      setFeedbackMsg({
+        type: "success",
+        text: `Sensor module "${dev.name}" unregistered successfully.`,
+      });
+      setTimeout(() => setFeedbackMsg(null), 3000);
+      await loadHierarchy();
+      if (activeGreenhouseId) {
+        await loadGreenhouseData(activeGreenhouseId);
+      }
+    } catch (err: any) {
+      alert("Failed to unregister: " + err.message);
+    }
   };
 
   const handleSaveApiUrl = (e: React.FormEvent) => {
@@ -814,144 +858,273 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* MULTI-ESP GRID: DISPLAYING ALL SENSOR MODULES IN THIS GREENHOUSE */}
+        {/* REGISTERED SENSOR MODULES INVENTORY & TELEMETRY */}
         <section className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <h3 className="text-base font-semibold text-white tracking-tight flex items-center space-x-2">
-                <Cpu className="w-4 h-4 text-emerald-400" />
-                <span>Connected Sensor Modules in {activeGreenhouse?.name} ({activeGreenhouse?.plant})</span>
+                <Cpu className="w-5 h-5 text-emerald-400" />
+                <span>Registered Sensor Modules</span>
+                <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                  {allDevices.length} Module{allDevices.length !== 1 ? "s" : ""} Total
+                </span>
               </h3>
-              <p className="text-xs text-[#8E8E93]">
-                Telemetry is strictly separated by greenhouse and company. Select any module to view sensor curves.
+              <p className="text-xs text-[#8E8E93] mt-0.5">
+                Hardware modules authorized with unique UUIDs. Copy the UUID to provision the ESP32 node via captive portal.
               </p>
             </div>
-            <button
-              onClick={() => {
-                setNewDeviceGreenhouseId(activeGreenhouseId);
-                setShowRegisterModal(true);
-              }}
-              className="text-xs text-emerald-400 hover:text-emerald-300 font-medium flex items-center space-x-1"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Connect Another Sensor Module to this Greenhouse</span>
-            </button>
-          </div>
 
-          {greenhouseDevices.length === 0 ? (
-            <div className="bg-[#141417] border border-[#282830] rounded-2xl p-12 text-center">
-              <Cpu className="w-12 h-12 text-[#3E3E48] mx-auto mb-3" />
-              <h4 className="text-sm font-semibold text-white">No Sensor Modules Connected Yet</h4>
-              <p className="text-xs text-[#8E8E93] max-w-md mx-auto mt-1 mb-4">
-                To prevent unseparated telemetry mix-ups, you must register the sensor modules with their unique UUID before sending data to {activeGreenhouse?.name}.
-              </p>
+            {/* Filter Toggle & Register Action */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center bg-[#141417] border border-[#282830] rounded-xl p-1 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setDeviceViewFilter("all")}
+                  className={`px-3 py-1.5 rounded-lg font-medium transition ${
+                    deviceViewFilter === "all"
+                      ? "bg-emerald-500 text-white shadow-sm"
+                      : "text-[#A1A1A6] hover:text-white"
+                  }`}
+                >
+                  All Registered ({allDevices.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeviceViewFilter("current")}
+                  className={`px-3 py-1.5 rounded-lg font-medium transition ${
+                    deviceViewFilter === "current"
+                      ? "bg-emerald-500 text-white shadow-sm"
+                      : "text-[#A1A1A6] hover:text-white"
+                  }`}
+                >
+                  {activeGreenhouse?.name || "This Greenhouse"} ({greenhouseDevices.length})
+                </button>
+              </div>
+
               <button
                 onClick={() => {
+                  if (greenhouses.length === 0) {
+                    alert("Please register a greenhouse first!");
+                    setShowNewGreenhouseModal(true);
+                    return;
+                  }
                   setNewDeviceGreenhouseId(activeGreenhouseId);
                   setShowRegisterModal(true);
                 }}
-                className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-white rounded-xl text-xs font-medium shadow-md shadow-emerald-500/20 transition inline-flex items-center space-x-2"
+                className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white rounded-xl text-xs font-semibold shadow-md shadow-emerald-500/20 transition flex items-center space-x-1.5"
               >
                 <Plus className="w-4 h-4" />
-                <span>Register First Sensor Module for {activeGreenhouse?.name}</span>
+                <span>+ Register Sensor Module</span>
               </button>
             </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {greenhouseDevices.map((dev) => {
-                const isFocused = dev.deviceId === focusedDeviceId;
-                const r = dev.latestReading;
+          </div>
 
-                return (
-                  <div
-                    key={dev.deviceId}
-                    onClick={() => {
-                      setFocusedDeviceId(dev.deviceId);
-                      loadFocusedNodeData(dev.deviceId);
-                    }}
-                    className={`bg-[#141417] border rounded-2xl p-5 cursor-pointer transition relative group ${
-                      isFocused
-                        ? "border-emerald-500/80 shadow-lg shadow-emerald-500/10 ring-1 ring-emerald-500/30"
-                        : "border-[#282830] hover:border-[#3E3E48]"
-                    }`}
-                  >
-                    {/* Node Header */}
-                    <div className="flex items-start justify-between mb-3.5">
-                      <div>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-sm font-semibold text-white group-hover:text-emerald-400 transition">
-                            {dev.name}
-                          </span>
-                          <span className="text-[10px] px-2 py-0.5 rounded uppercase font-bold tracking-wider bg-[#202028] text-[#A1A1A6]">
-                            {dev.sensorType === "fc28" ? "All + FC-28" : dev.sensorType === "md0869" ? "All + MD0869" : dev.sensorType || "ESP"}
-                          </span>
-                        </div>
-                        <div className="text-[11px] text-[#8E8E93] mt-0.5 font-mono truncate max-w-[200px]">
-                          UUID: {dev.deviceId.slice(0, 18)}...
-                        </div>
-                        <div className="text-[11px] text-[#A1A1A6] mt-0.5 flex items-center space-x-1.5">
-                          <span>Zone: <strong className="text-white">{dev.location || "Main Bed"}</strong></span>
-                          <span>•</span>
-                          <span className="text-emerald-400">🌱 {dev.plant || activeGreenhouse?.plant || "Crops"}</span>
-                        </div>
-                      </div>
-
-                      {/* Online Status Pill */}
-                      <div
-                        className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold border ${
-                          dev.isOnline
-                            ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                            : "bg-rose-500/10 text-rose-400 border-rose-500/20"
-                        }`}
-                      >
-                        <span className={`w-1.5 h-1.5 rounded-full ${dev.isOnline ? "bg-emerald-400 animate-pulse" : "bg-rose-400"}`} />
-                        <span>{dev.isOnline ? "Online" : "Offline"}</span>
-                      </div>
-                    </div>
-
-                    {/* Sensor Metrics Matrix */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-[#202026]">
-                      <div className="bg-[#18181D] rounded-lg p-2 text-center">
-                        <span className="text-[10px] text-[#8E8E93] block">Temp</span>
-                        <span className="text-xs font-bold text-emerald-400">
-                          {r?.temperature !== undefined ? `${r.temperature.toFixed(1)}°C` : "--"}
-                        </span>
-                      </div>
-                      <div className="bg-[#18181D] rounded-lg p-2 text-center">
-                        <span className="text-[10px] text-[#8E8E93] block">Humidity</span>
-                        <span className="text-xs font-bold text-cyan-400">
-                          {r?.humidity !== undefined ? `${r.humidity.toFixed(1)}%` : "--"}
-                        </span>
-                      </div>
-                      <div className="bg-[#18181D] rounded-lg p-2 text-center">
-                        <span className="text-[10px] text-[#8E8E93] block">Soil</span>
-                        <span className="text-xs font-bold text-purple-400">
-                          {r?.soilMoisture !== undefined ? `${r.soilMoisture.toFixed(1)}%` : "--"}
-                        </span>
-                      </div>
-                      <div className="bg-[#18181D] rounded-lg p-2 text-center">
-                        <span className="text-[10px] text-[#8E8E93] block">Light</span>
-                        <span className="text-xs font-bold text-amber-400">
-                          {r?.light !== undefined ? `${r.light.toFixed(0)} lx` : "--"}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Footer with Last Seen & Wi-Fi */}
-                    <div className="mt-3.5 flex items-center justify-between text-[11px] text-[#6E6E73] pt-2 border-t border-[#1C1C22]">
-                      <span className="flex items-center space-x-1">
-                        <Wifi className="w-3 h-3 text-cyan-400" />
-                        <span>{r?.wifiSsid || dev.wifiSsid || "Wi-Fi Connected"}</span>
-                      </span>
-                      <span>
-                        {dev.lastSeen ? `Seen ${new Date(dev.lastSeen).toLocaleTimeString()}` : "Pending Sync"}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
+          {/* Active Filter Notice if viewing greenhouse with 0 devices while others exist */}
+          {deviceViewFilter === "current" && greenhouseDevices.length === 0 && allDevices.length > 0 && (
+            <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-2.5 text-xs text-amber-300 flex items-center justify-between">
+              <span>
+                No modules assigned to <strong>{activeGreenhouse?.name}</strong> yet, but <strong>{allDevices.length}</strong> module(s) are registered in other greenhouses.
+              </span>
+              <button
+                onClick={() => setDeviceViewFilter("all")}
+                className="underline hover:text-white font-medium ml-2"
+              >
+                View all {allDevices.length} modules
+              </button>
             </div>
           )}
+
+          {/* Devices Grid */}
+          {(() => {
+            const displayed =
+              deviceViewFilter === "all"
+                ? selectedCompanyId === "all"
+                  ? allDevices
+                  : allDevices.filter((d) => d.companyId === selectedCompanyId)
+                : greenhouseDevices;
+
+            if (displayed.length === 0) {
+              return (
+                <div className="bg-[#141417] border border-[#282830] rounded-2xl p-12 text-center">
+                  <Cpu className="w-12 h-12 text-[#3E3E48] mx-auto mb-3" />
+                  <h4 className="text-sm font-semibold text-white">No Sensor Modules Registered Here</h4>
+                  <p className="text-xs text-[#8E8E93] max-w-md mx-auto mt-1 mb-4">
+                    Register a sensor module to generate its unique UUID. Copy that UUID and paste it into the ESP32 Onboard Captive Portal (GreenNode-Setup).
+                  </p>
+                  <button
+                    onClick={() => {
+                      setNewDeviceGreenhouseId(activeGreenhouseId);
+                      setShowRegisterModal(true);
+                    }}
+                    className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-white rounded-xl text-xs font-medium shadow-md shadow-emerald-500/20 transition inline-flex items-center space-x-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Register Sensor Module</span>
+                  </button>
+                </div>
+              );
+            }
+
+            return (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {displayed.map((dev) => {
+                  const isFocused = dev.deviceId === focusedDeviceId;
+                  const r = dev.latestReading;
+                  const probeLabel =
+                    dev.sensorType === "md0869"
+                      ? "All Modules + MD0869"
+                      : dev.sensorType === "fc28"
+                      ? "All Modules + FC-28"
+                      : dev.sensorType || "Standard Probe";
+
+                  return (
+                    <div
+                      key={dev.deviceId}
+                      onClick={() => {
+                        setFocusedDeviceId(dev.deviceId);
+                        loadFocusedNodeData(dev.deviceId);
+                        if (dev.greenhouseId && dev.greenhouseId !== activeGreenhouseId) {
+                          setActiveGreenhouseId(dev.greenhouseId);
+                        }
+                      }}
+                      className={`bg-[#141417] border rounded-2xl p-5 cursor-pointer transition relative group ${
+                        isFocused
+                          ? "border-emerald-500 shadow-xl shadow-emerald-500/15 ring-1 ring-emerald-500/40"
+                          : "border-[#282830] hover:border-[#3E3E48]"
+                      }`}
+                    >
+                      {/* Node Header */}
+                      <div className="flex items-start justify-between mb-2.5">
+                        <div className="flex-1 pr-2">
+                          <div className="flex items-center space-x-2">
+                            <span className="text-sm font-bold text-white group-hover:text-emerald-400 transition">
+                              {dev.name}
+                            </span>
+                            <span className="text-[10px] px-2 py-0.5 rounded uppercase font-bold tracking-wider bg-[#202028] text-emerald-400 border border-emerald-500/20">
+                              {probeLabel}
+                            </span>
+                          </div>
+
+                          <div className="text-[11px] text-[#A1A1A6] mt-1 flex flex-wrap items-center gap-1.5">
+                            <span className="text-white font-medium">🏛️ {dev.greenhouseName || "Greenhouse"}</span>
+                            <span>•</span>
+                            <span className="text-emerald-400 font-medium">🌱 {dev.plant || "Crop"}</span>
+                            <span>•</span>
+                            <span>📍 {dev.location || "Zone 1"}</span>
+                          </div>
+                        </div>
+
+                        {/* Status & Delete */}
+                        <div className="flex items-center space-x-1.5 shrink-0">
+                          <div
+                            className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold border ${
+                              dev.isOnline
+                                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                                : r
+                                ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                                : "bg-amber-500/10 text-amber-300 border-amber-500/20"
+                            }`}
+                          >
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full ${
+                                dev.isOnline
+                                  ? "bg-emerald-400 animate-pulse"
+                                  : r
+                                  ? "bg-rose-400"
+                                  : "bg-amber-400"
+                              }`}
+                            />
+                            <span>{dev.isOnline ? "Online" : r ? "Offline" : "Pending Sync"}</span>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteDevice(e, dev)}
+                            title="Unregister this sensor module"
+                            className="p-1 rounded-lg text-[#6E6E73] hover:text-rose-400 hover:bg-rose-500/10 transition"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Prominent Device UUID Box with 1-Click Copy */}
+                      <div className="bg-[#0B0B0E] border border-[#24242C] rounded-xl p-2.5 my-3 flex items-center justify-between gap-2">
+                        <div className="overflow-hidden">
+                          <span className="text-[9px] uppercase font-bold text-[#8E8E93] tracking-wider block">
+                            Provisioning UUID
+                          </span>
+                          <span className="text-xs font-mono font-bold text-emerald-400 select-all break-all">
+                            {dev.deviceId}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCopyUuid(dev.deviceId);
+                          }}
+                          title="Copy UUID to paste into ESP captive portal"
+                          className="px-2.5 py-1.5 bg-[#1C1C22] hover:bg-emerald-500 hover:text-white text-[#C7C7CC] rounded-lg border border-[#303038] text-xs font-semibold shrink-0 transition flex items-center space-x-1"
+                        >
+                          {copiedDeviceId === dev.deviceId ? (
+                            <>
+                              <Check className="w-3.5 h-3.5 text-emerald-300" />
+                              <span className="text-emerald-300 font-bold">Copied!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3.5 h-3.5" />
+                              <span>Copy UUID</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+
+                      {/* Sensor Metrics Matrix */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-[#202026]">
+                        <div className="bg-[#18181D] rounded-lg p-2 text-center">
+                          <span className="text-[10px] text-[#8E8E93] block">Temp</span>
+                          <span className="text-xs font-bold text-emerald-400">
+                            {r?.temperature !== undefined ? `${r.temperature.toFixed(1)}°C` : "--"}
+                          </span>
+                        </div>
+                        <div className="bg-[#18181D] rounded-lg p-2 text-center">
+                          <span className="text-[10px] text-[#8E8E93] block">Humidity</span>
+                          <span className="text-xs font-bold text-cyan-400">
+                            {r?.humidity !== undefined ? `${r.humidity.toFixed(1)}%` : "--"}
+                          </span>
+                        </div>
+                        <div className="bg-[#18181D] rounded-lg p-2 text-center">
+                          <span className="text-[10px] text-[#8E8E93] block">Soil</span>
+                          <span className="text-xs font-bold text-purple-400">
+                            {r?.soilMoisture !== undefined ? `${r.soilMoisture.toFixed(1)}%` : "--"}
+                          </span>
+                        </div>
+                        <div className="bg-[#18181D] rounded-lg p-2 text-center">
+                          <span className="text-[10px] text-[#8E8E93] block">Light</span>
+                          <span className="text-xs font-bold text-amber-400">
+                            {r?.light !== undefined ? `${r.light.toFixed(0)} lx` : "--"}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Footer with Wi-Fi & Action */}
+                      <div className="mt-3 flex items-center justify-between text-[11px] text-[#6E6E73] pt-2 border-t border-[#1C1C22]">
+                        <span className="flex items-center space-x-1 truncate max-w-[170px]">
+                          <Wifi className="w-3 h-3 text-cyan-400 shrink-0" />
+                          <span className="truncate">{r?.wifiSsid || dev.wifiSsid || "Wi-Fi Ready"}</span>
+                        </span>
+                        <span className="text-emerald-400 hover:underline font-medium">
+                          {isFocused ? "Inspecting Telemetry ↓" : "Click to Inspect"}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </section>
 
         {/* FOCUSED SENSOR MODULE TELEMETRY TIMELINE */}
