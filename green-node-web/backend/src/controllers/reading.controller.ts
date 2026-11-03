@@ -7,6 +7,7 @@ import {
   registerDeviceSchema,
   updateDeviceSchema,
   heartbeatSchema,
+  createCompanySchema,
   createGreenhouseSchema,
   assignDeviceToGreenhouseSchema
 } from '../schemas/reading.schema.js';
@@ -168,6 +169,88 @@ export class ReadingController {
   }
 
   // ==========================================================================
+  // COMPANY CONTROLLERS
+  // ==========================================================================
+
+  /**
+   * POST /api/companies
+   * Register a new company with Name and Location
+   */
+  static async createCompany(req: Request, res: Response): Promise<void> {
+    try {
+      const validatedData = createCompanySchema.parse(req.body);
+      const company = await ReadingService.createCompany(validatedData);
+
+      res.status(201).json({
+        success: true,
+        message: 'Company registered successfully',
+        data: company
+      });
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        res.status(400).json({
+          success: false,
+          error: 'Company registration validation failed',
+          details: error.errors
+        });
+        return;
+      }
+      res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message || 'Internal Server Error'
+      });
+    }
+  }
+
+  /**
+   * GET /api/companies
+   * List all registered companies
+   */
+  static async getCompanies(_req: Request, res: Response): Promise<void> {
+    try {
+      const companies = await ReadingService.getCompanies();
+      res.json({
+        success: true,
+        count: companies.length,
+        data: companies
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        error: error.message || 'Internal Server Error'
+      });
+    }
+  }
+
+  /**
+   * GET /api/companies/:companyId
+   */
+  static async getCompanyById(req: Request, res: Response): Promise<void> {
+    try {
+      const companyId = Array.isArray(req.params.companyId) ? req.params.companyId[0] : req.params.companyId;
+      const company = await ReadingService.getCompanyById(companyId);
+
+      if (!company) {
+        res.status(404).json({
+          success: false,
+          error: `Company "${companyId}" not found`
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        data: company
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        error: error.message || 'Internal Server Error'
+      });
+    }
+  }
+
+  // ==========================================================================
   // GREENHOUSE CONTROLLERS
   // ==========================================================================
 
@@ -207,8 +290,8 @@ export class ReadingController {
    */
   static async getGreenhouses(req: Request, res: Response): Promise<void> {
     try {
-      const companyLocation = req.query.companyLocation as string | undefined;
-      const greenhouses = await ReadingService.getGreenhouses(companyLocation);
+      const companyId = req.query.companyId as string | undefined;
+      const greenhouses = await ReadingService.getGreenhouses(companyId);
 
       res.json({
         success: true,

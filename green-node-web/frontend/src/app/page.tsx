@@ -4,6 +4,8 @@ import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import {
+  fetchCompanies,
+  createCompany,
   fetchGreenhouses,
   fetchGreenhouseOverview,
   createGreenhouse,
@@ -20,6 +22,7 @@ import {
   getWebSocketUrl,
   getBackendUrl,
   setBackendUrl,
+  Company,
   Greenhouse,
   Device,
   Reading,
@@ -49,6 +52,7 @@ import {
   Copy,
   Check,
   ShieldCheck,
+  Tag,
 } from "lucide-react";
 import {
   Chart as ChartJS,
@@ -79,11 +83,12 @@ export default function DashboardPage() {
   const router = useRouter();
 
   // Hierarchy State
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>("all");
   const [greenhouses, setGreenhouses] = useState<Greenhouse[]>([]);
   const [activeGreenhouseId, setActiveGreenhouseId] = useState<string>("greenhouse-01");
   const [activeGreenhouse, setActiveGreenhouse] = useState<Greenhouse | null>(null);
   const [greenhouseDevices, setGreenhouseDevices] = useState<Device[]>([]);
-  const [selectedLocation, setSelectedLocation] = useState<string>("all");
 
   // Active Device Drilldown (Optional focus on a specific node within greenhouse)
   const [focusedDeviceId, setFocusedDeviceId] = useState<string | null>(null);
@@ -99,6 +104,7 @@ export default function DashboardPage() {
 
   // Modals
   const [showRegisterModal, setShowRegisterModal] = useState<boolean>(false);
+  const [showNewCompanyModal, setShowNewCompanyModal] = useState<boolean>(false);
   const [showNewGreenhouseModal, setShowNewGreenhouseModal] = useState<boolean>(false);
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
   const [showProvisionedSuccess, setShowProvisionedSuccess] = useState<{
@@ -106,22 +112,29 @@ export default function DashboardPage() {
     name: string;
     greenhouseName: string;
     companyLocation: string;
+    plant: string;
   } | null>(null);
 
-  // Form inputs for Device Registration
+  // Form inputs for Company Registration
+  const [newCompanyName, setNewCompanyName] = useState<string>("");
+  const [newCompanyLocation, setNewCompanyLocation] = useState<string>("");
+  const [newCompanyDescription, setNewCompanyDescription] = useState<string>("");
+  const [isCreatingCompany, setIsCreatingCompany] = useState<boolean>(false);
+
+  // Form inputs for Greenhouse Registration (Under Registered Company)
+  const [newGhCompanyId, setNewGhCompanyId] = useState<string>("");
+  const [newGhName, setNewGhName] = useState<string>("");
+  const [newGhPlant, setNewGhPlant] = useState<string>("Heirloom Tomatoes");
+  const [newGhDescription, setNewGhDescription] = useState<string>("");
+  const [isCreatingGh, setIsCreatingGh] = useState<boolean>(false);
+
+  // Form inputs for Sensor Module Registration
   const [newDeviceName, setNewDeviceName] = useState<string>("");
-  const [newDeviceCompany, setNewDeviceCompany] = useState<string>("Colombo Agri Facility");
   const [newDeviceGreenhouseId, setNewDeviceGreenhouseId] = useState<string>("greenhouse-01");
   const [newDeviceLocation, setNewDeviceLocation] = useState<string>("Zone 1 - Main Bed");
   const [newDeviceSensorType, setNewDeviceSensorType] = useState<string>("fc28");
   const [newDeviceId, setNewDeviceId] = useState<string>("");
   const [isRegistering, setIsRegistering] = useState<boolean>(false);
-
-  // Form inputs for Greenhouse Creation
-  const [newGhName, setNewGhName] = useState<string>("");
-  const [newGhCompany, setNewGhCompany] = useState<string>("Colombo Agri Facility");
-  const [newGhDescription, setNewGhDescription] = useState<string>("");
-  const [isCreatingGh, setIsCreatingGh] = useState<boolean>(false);
 
   // Settings & Utilities
   const [apiUrlInput, setApiUrlInput] = useState<string>("");
@@ -142,7 +155,7 @@ export default function DashboardPage() {
     if (!isAuthenticated) return;
     setApiUrlInput(getBackendUrl());
     checkBackendHealth();
-    loadGreenhouses();
+    loadHierarchy();
     loadLogs();
 
     const keepAliveTimer = setInterval(() => {
@@ -152,15 +165,20 @@ export default function DashboardPage() {
     return () => clearInterval(keepAliveTimer);
   }, [isAuthenticated]);
 
-  // Load Greenhouses from Backend
-  const loadGreenhouses = async () => {
+  const loadHierarchy = async () => {
     try {
-      const list = await fetchGreenhouses();
-      setGreenhouses(list);
-      if (list.length > 0) {
-        const found = list.find((g) => g.greenhouseId === activeGreenhouseId);
+      const [comps, ghs] = await Promise.all([fetchCompanies(), fetchGreenhouses()]);
+      setCompanies(comps);
+      setGreenhouses(ghs);
+
+      if (comps.length > 0 && !newGhCompanyId) {
+        setNewGhCompanyId(comps[0].companyId);
+      }
+
+      if (ghs.length > 0) {
+        const found = ghs.find((g) => g.greenhouseId === activeGreenhouseId);
         if (!found) {
-          setActiveGreenhouseId(list[0].greenhouseId);
+          setActiveGreenhouseId(ghs[0].greenhouseId);
         }
       }
     } catch {
@@ -188,7 +206,6 @@ export default function DashboardPage() {
         setActiveGreenhouse(overview);
         setGreenhouseDevices(overview.devices || []);
 
-        // Default focused device to first device in greenhouse
         if (overview.devices && overview.devices.length > 0) {
           const firstDev = overview.devices[0];
           setFocusedDeviceId(firstDev.deviceId);
@@ -261,7 +278,6 @@ export default function DashboardPage() {
           if (payload.event === "new_reading" && payload.data) {
             const reading: Reading = payload.data;
 
-            // Only update if reading belongs to current greenhouse
             if (reading.greenhouseId === activeGreenhouseId) {
               setGreenhouseDevices((prev) =>
                 prev.map((dev) =>
@@ -285,7 +301,6 @@ export default function DashboardPage() {
                 )
               );
 
-              // Update focused node if matched
               if (!focusedDeviceId || reading.deviceId === focusedDeviceId) {
                 setFocusedLatestReading(reading);
                 setRecentReadings((prev) => [reading, ...prev].slice(0, 30));
@@ -314,21 +329,88 @@ export default function DashboardPage() {
     }
   };
 
-  // Handle Registering a New ESP Node
+  // 1. Handle Registering a New Company
+  const handleRegisterCompany = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsCreatingCompany(true);
+    try {
+      const company = await createCompany({
+        name: newCompanyName.trim(),
+        location: newCompanyLocation.trim(),
+        description: newCompanyDescription.trim() || undefined,
+      });
+
+      setShowNewCompanyModal(false);
+      setNewCompanyName("");
+      setNewCompanyLocation("");
+      setNewCompanyDescription("");
+
+      const comps = await fetchCompanies();
+      setCompanies(comps);
+      setSelectedCompanyId(company.companyId);
+      setNewGhCompanyId(company.companyId);
+
+      setFeedbackMsg({
+        type: "success",
+        text: `Company "${company.name}" registered at "${company.location}"!`,
+      });
+      setTimeout(() => setFeedbackMsg(null), 4000);
+    } catch (err: any) {
+      alert(err.message || "Failed to register company");
+    } finally {
+      setIsCreatingCompany(false);
+    }
+  };
+
+  // 2. Handle Registering a Greenhouse (Under Registered Company, with Plant)
+  const handleCreateGreenhouse = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newGhCompanyId) {
+      alert("Please select or register a Company first!");
+      return;
+    }
+    setIsCreatingGh(true);
+    try {
+      const gh = await createGreenhouse({
+        companyId: newGhCompanyId,
+        name: newGhName.trim(),
+        plant: newGhPlant.trim(),
+        description: newGhDescription.trim() || undefined,
+      });
+
+      setShowNewGreenhouseModal(false);
+      setNewGhName("");
+      setNewGhPlant("Heirloom Tomatoes");
+      setNewGhDescription("");
+
+      await loadHierarchy();
+      setActiveGreenhouseId(gh.greenhouseId);
+      setFeedbackMsg({
+        type: "success",
+        text: `Greenhouse "${gh.name}" (Crop: ${gh.plant}) created under ${gh.companyName}!`,
+      });
+      setTimeout(() => setFeedbackMsg(null), 4000);
+    } catch (err: any) {
+      alert(err.message || "Failed to create greenhouse");
+    } finally {
+      setIsCreatingGh(false);
+    }
+  };
+
+  // 3. Handle Registering a Sensor Module
   const handleRegisterDevice = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsRegistering(true);
     try {
       const selectedGh = greenhouses.find((g) => g.greenhouseId === newDeviceGreenhouseId);
-      const company = selectedGh?.companyLocation || newDeviceCompany;
+      const company = selectedGh?.companyLocation || "Main Facility";
       const ghName = selectedGh?.name || "Greenhouse";
+      const plant = selectedGh?.plant || "Crops";
 
       const dev = await registerDevice({
         deviceId: newDeviceId.trim() || undefined,
         name: newDeviceName.trim(),
-        companyLocation: company,
         greenhouseId: newDeviceGreenhouseId,
-        greenhouseName: ghName,
         sensorType: newDeviceSensorType,
         location: newDeviceLocation.trim() || "Zone 1",
       });
@@ -338,17 +420,17 @@ export default function DashboardPage() {
       setNewDeviceId("");
       setNewDeviceLocation("Zone 1 - Main Bed");
 
-      await loadGreenhouses();
+      await loadHierarchy();
       await loadGreenhouseData(newDeviceGreenhouseId);
       setActiveGreenhouseId(newDeviceGreenhouseId);
       setFocusedDeviceId(dev.deviceId);
 
-      // Open Success & Provisioning Code Card
       setShowProvisionedSuccess({
         deviceId: dev.deviceId,
         name: dev.name,
         greenhouseName: ghName,
         companyLocation: company,
+        plant,
       });
 
       setFeedbackMsg({
@@ -360,33 +442,6 @@ export default function DashboardPage() {
       alert(err.message || "Registration failed");
     } finally {
       setIsRegistering(false);
-    }
-  };
-
-  // Handle Creating a New Greenhouse
-  const handleCreateGreenhouse = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsCreatingGh(true);
-    try {
-      const gh = await createGreenhouse({
-        name: newGhName.trim(),
-        companyLocation: newGhCompany.trim(),
-        description: newGhDescription.trim() || undefined,
-      });
-      setShowNewGreenhouseModal(false);
-      setNewGhName("");
-      setNewGhDescription("");
-      await loadGreenhouses();
-      setActiveGreenhouseId(gh.greenhouseId);
-      setFeedbackMsg({
-        type: "success",
-        text: `Greenhouse "${gh.name}" created at ${gh.companyLocation}!`,
-      });
-      setTimeout(() => setFeedbackMsg(null), 4000);
-    } catch (err: any) {
-      alert(err.message || "Failed to create greenhouse");
-    } finally {
-      setIsCreatingGh(false);
     }
   };
 
@@ -407,7 +462,7 @@ export default function DashboardPage() {
 
   const handleSendSample = async () => {
     if (!focusedDeviceId) {
-      alert("Please register or select an ESP node in this greenhouse first.");
+      alert("Please register or select a sensor module in this greenhouse first.");
       return;
     }
     try {
@@ -437,12 +492,11 @@ export default function DashboardPage() {
     setLogs([]);
   };
 
-  // Distinct company locations for filtering
-  const companyLocations = Array.from(new Set(greenhouses.map((g) => g.companyLocation)));
+  // Filter Greenhouses by selected Company
   const filteredGreenhouses =
-    selectedLocation === "all"
+    selectedCompanyId === "all"
       ? greenhouses
-      : greenhouses.filter((g) => g.companyLocation === selectedLocation);
+      : greenhouses.filter((g) => g.companyId === selectedCompanyId);
 
   // Chart configuration
   const chartLabels = recentReadings.slice(0, 15).reverse().map((r) => {
@@ -538,7 +592,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Top Navbar with Location & Greenhouse Hierarchy */}
+      {/* Top Navbar with Company -> Greenhouse Hierarchy */}
       <header className="border-b border-[#202026] bg-[#0E0E12]/80 backdrop-blur-xl sticky top-0 z-30 px-6 py-3.5">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
           {/* Brand */}
@@ -555,64 +609,100 @@ export default function DashboardPage() {
               </h1>
               <p className="text-xs text-[#8E8E93] flex items-center space-x-1.5">
                 <Building2 className="w-3 h-3 text-emerald-400" />
-                <span>{activeGreenhouse?.companyLocation || "Company Location"}</span>
+                <span>{activeGreenhouse?.companyName || "Company"} ({activeGreenhouse?.companyLocation || "Location"})</span>
                 <span>•</span>
                 <Warehouse className="w-3 h-3 text-teal-400" />
                 <span className="text-white font-medium">{activeGreenhouse?.name || "Greenhouse"}</span>
+                <span>•</span>
+                <Sprout className="w-3 h-3 text-emerald-400" />
+                <span className="text-emerald-400 font-semibold">{activeGreenhouse?.plant || "Crops"}</span>
               </p>
             </div>
           </div>
 
           {/* Hierarchy Selectors & Navigation */}
           <div className="flex flex-wrap items-center gap-2.5">
-            {/* 1. Company Location Filter */}
-            {companyLocations.length > 1 && (
-              <div className="flex items-center space-x-1.5 bg-[#141417] border border-[#282830] rounded-lg px-2.5 py-1 text-xs text-[#A1A1A6]">
-                <Building2 className="w-3.5 h-3.5 text-emerald-400" />
-                <select
-                  value={selectedLocation}
-                  onChange={(e) => setSelectedLocation(e.target.value)}
-                  className="bg-transparent text-xs text-white focus:outline-none cursor-pointer"
-                >
-                  <option value="all">All Facilities</option>
-                  {companyLocations.map((loc) => (
-                    <option key={loc} value={loc} className="bg-[#141417]">
-                      {loc}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {/* 2. Greenhouse Selector */}
+            {/* 1. Company Selector */}
             <div className="flex items-center space-x-1.5 bg-[#141417] border border-[#282830] rounded-lg px-2.5 py-1 text-xs text-[#A1A1A6]">
-              <Warehouse className="w-3.5 h-3.5 text-teal-400" />
+              <Building2 className="w-3.5 h-3.5 text-emerald-400" />
               <select
-                value={activeGreenhouseId}
-                onChange={(e) => setActiveGreenhouseId(e.target.value)}
-                className="bg-transparent text-xs text-white focus:outline-none cursor-pointer font-medium"
+                value={selectedCompanyId}
+                onChange={(e) => {
+                  setSelectedCompanyId(e.target.value);
+                  const matchingGhs = e.target.value === "all"
+                    ? greenhouses
+                    : greenhouses.filter((g) => g.companyId === e.target.value);
+                  if (matchingGhs.length > 0) {
+                    setActiveGreenhouseId(matchingGhs[0].greenhouseId);
+                  }
+                }}
+                className="bg-transparent text-xs text-white focus:outline-none cursor-pointer max-w-[150px] truncate"
               >
-                {filteredGreenhouses.map((g) => (
-                  <option key={g.greenhouseId} value={g.greenhouseId} className="bg-[#141417]">
-                    {g.name} ({g.assignedDeviceIds?.length || 0} ESPs)
+                <option value="all">All Companies</option>
+                {companies.map((c) => (
+                  <option key={c.companyId} value={c.companyId} className="bg-[#141417]">
+                    {c.name} ({c.location})
                   </option>
                 ))}
               </select>
             </div>
 
-            {/* Add Greenhouse Button */}
+            {/* 2. Greenhouse Selector (Shows Greenhouse Name + Plant) */}
+            <div className="flex items-center space-x-1.5 bg-[#141417] border border-[#282830] rounded-lg px-2.5 py-1 text-xs text-[#A1A1A6]">
+              <Warehouse className="w-3.5 h-3.5 text-teal-400" />
+              <select
+                value={activeGreenhouseId}
+                onChange={(e) => setActiveGreenhouseId(e.target.value)}
+                className="bg-transparent text-xs text-white focus:outline-none cursor-pointer font-medium max-w-[180px] truncate"
+              >
+                {filteredGreenhouses.map((g) => (
+                  <option key={g.greenhouseId} value={g.greenhouseId} className="bg-[#141417]">
+                    {g.name} — {g.plant}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Action Button: Register Company */}
             <button
-              onClick={() => setShowNewGreenhouseModal(true)}
-              title="Create a new greenhouse"
+              onClick={() => setShowNewCompanyModal(true)}
+              title="Register a new company with name & location"
+              className="px-2.5 py-1.5 bg-[#1C1C20] hover:bg-[#282830] text-xs font-medium rounded-lg border border-[#282830] transition flex items-center space-x-1 text-[#A1A1A6] hover:text-white"
+            >
+              <Building2 className="w-3.5 h-3.5 text-emerald-400" />
+              <span>+ Company</span>
+            </button>
+
+            {/* Action Button: Register Greenhouse (Under Company with Plant) */}
+            <button
+              onClick={() => {
+                if (companies.length === 0) {
+                  alert("Please register a company first!");
+                  setShowNewCompanyModal(true);
+                  return;
+                }
+                if (selectedCompanyId !== "all") {
+                  setNewGhCompanyId(selectedCompanyId);
+                } else {
+                  setNewGhCompanyId(companies[0].companyId);
+                }
+                setShowNewGreenhouseModal(true);
+              }}
+              title="Register a greenhouse under a company"
               className="px-2.5 py-1.5 bg-[#1C1C20] hover:bg-[#282830] text-xs font-medium rounded-lg border border-[#282830] transition flex items-center space-x-1 text-[#A1A1A6] hover:text-white"
             >
               <Warehouse className="w-3.5 h-3.5 text-teal-400" />
               <span>+ Greenhouse</span>
             </button>
 
-            {/* Register Sensor Module Button */}
+            {/* Action Button: Register Sensor Module */}
             <button
               onClick={() => {
+                if (greenhouses.length === 0) {
+                  alert("Please register a greenhouse first!");
+                  setShowNewGreenhouseModal(true);
+                  return;
+                }
                 setNewDeviceGreenhouseId(activeGreenhouseId);
                 setShowRegisterModal(true);
               }}
@@ -664,22 +754,26 @@ export default function DashboardPage() {
 
       {/* Main Content */}
       <main className="flex-1 max-w-7xl mx-auto w-full px-6 py-8 space-y-8">
-        {/* GREENHOUSE SUMMARY HEADER */}
+        {/* GREENHOUSE SUMMARY BANNER WITH COMPANY, LOCATION & PLANT */}
         <div className="bg-gradient-to-r from-[#141417] via-[#16161B] to-[#121215] border border-[#282830] rounded-2xl p-6 shadow-xl relative overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-6 relative z-10">
             <div>
               <div className="flex items-center space-x-2 text-xs font-semibold uppercase tracking-wider text-emerald-400 mb-1">
                 <ShieldCheck className="w-4 h-4" />
-                <span>Protected Greenhouse Cluster</span>
+                <span>{activeGreenhouse?.companyName || "Company"} • {activeGreenhouse?.companyLocation || "Facility"}</span>
               </div>
               <h2 className="text-2xl font-bold text-white tracking-tight flex items-center space-x-3">
                 <span>{activeGreenhouse?.name || "Active Greenhouse"}</span>
-                <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  {activeGreenhouse?.assignedDeviceIds?.length || greenhouseDevices.length} Registered ESPs
+                <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center space-x-1">
+                  <Sprout className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Crop: {activeGreenhouse?.plant || "Vegetables"}</span>
+                </span>
+                <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-[#202028] text-[#A1A1A6] border border-[#303038]">
+                  {activeGreenhouse?.assignedDeviceIds?.length || greenhouseDevices.length} Modules
                 </span>
               </h2>
               <p className="text-xs text-[#8E8E93] mt-1 max-w-xl">
-                Location: <strong className="text-[#A1A1A6]">{activeGreenhouse?.companyLocation}</strong>
+                Operating under Company ID: <code className="text-[#A1A1A6] font-mono">{activeGreenhouse?.companyId || "comp"}</code>
                 {activeGreenhouse?.description ? ` • ${activeGreenhouse.description}` : ""}
               </p>
             </div>
@@ -711,7 +805,7 @@ export default function DashboardPage() {
                 </span>
               </div>
               <div className="bg-[#1C1C22]/80 border border-[#2C2C36] rounded-xl px-4 py-2.5 text-center min-w-[100px]">
-                <span className="text-[10px] uppercase font-semibold text-[#8E8E93] block">Active ESPs</span>
+                <span className="text-[10px] uppercase font-semibold text-[#8E8E93] block">Active Modules</span>
                 <span className="text-lg font-bold text-teal-400">
                   {greenhouseDevices.filter((d) => d.isOnline).length} / {greenhouseDevices.length} Online
                 </span>
@@ -720,16 +814,16 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* MULTI-ESP GRID: DISPLAYING ALL SENSOR MODULES BELONGING TO THIS GREENHOUSE */}
+        {/* MULTI-ESP GRID: DISPLAYING ALL SENSOR MODULES IN THIS GREENHOUSE */}
         <section className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-base font-semibold text-white tracking-tight flex items-center space-x-2">
                 <Cpu className="w-4 h-4 text-emerald-400" />
-                <span>Connected Sensor Modules in {activeGreenhouse?.name}</span>
+                <span>Connected Sensor Modules in {activeGreenhouse?.name} ({activeGreenhouse?.plant})</span>
               </h3>
               <p className="text-xs text-[#8E8E93]">
-                Telemetry is strictly separated by greenhouse. Select any module to view detailed sensor history.
+                Telemetry is strictly separated by greenhouse and company. Select any module to view sensor curves.
               </p>
             </div>
             <button
@@ -749,7 +843,7 @@ export default function DashboardPage() {
               <Cpu className="w-12 h-12 text-[#3E3E48] mx-auto mb-3" />
               <h4 className="text-sm font-semibold text-white">No Sensor Modules Connected Yet</h4>
               <p className="text-xs text-[#8E8E93] max-w-md mx-auto mt-1 mb-4">
-                To prevent unseparated telemetry mix-ups, you must register the sensor modules with their unique UUID before sending data to this greenhouse.
+                To prevent unseparated telemetry mix-ups, you must register the sensor modules with their unique UUID before sending data to {activeGreenhouse?.name}.
               </p>
               <button
                 onClick={() => {
@@ -789,14 +883,16 @@ export default function DashboardPage() {
                             {dev.name}
                           </span>
                           <span className="text-[10px] px-2 py-0.5 rounded uppercase font-bold tracking-wider bg-[#202028] text-[#A1A1A6]">
-                            {dev.sensorType || "ESP"}
+                            {dev.sensorType === "fc28" ? "All + FC-28" : dev.sensorType === "md0869" ? "All + MD0869" : dev.sensorType || "ESP"}
                           </span>
                         </div>
                         <div className="text-[11px] text-[#8E8E93] mt-0.5 font-mono truncate max-w-[200px]">
                           UUID: {dev.deviceId.slice(0, 18)}...
                         </div>
-                        <div className="text-[11px] text-[#A1A1A6] mt-0.5">
-                          Zone: <strong className="text-white">{dev.location || "Main Bed"}</strong>
+                        <div className="text-[11px] text-[#A1A1A6] mt-0.5 flex items-center space-x-1.5">
+                          <span>Zone: <strong className="text-white">{dev.location || "Main Bed"}</strong></span>
+                          <span>•</span>
+                          <span className="text-emerald-400">🌱 {dev.plant || activeGreenhouse?.plant || "Crops"}</span>
                         </div>
                       </div>
 
@@ -858,14 +954,14 @@ export default function DashboardPage() {
           )}
         </section>
 
-        {/* FOCUSED ESP METRIC CARDS & REAL-TIME TIMELINE */}
+        {/* FOCUSED SENSOR MODULE TELEMETRY TIMELINE */}
         {focusedDevice && (
           <div className="space-y-6 pt-4">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-semibold text-white tracking-tight flex items-center space-x-2">
                   <Activity className="w-4 h-4 text-emerald-400" />
-                  <span>Telemetry Inspector: {focusedDevice.name}</span>
+                  <span>Telemetry Inspector: {focusedDevice.name} (Crop: {focusedDevice.plant || activeGreenhouse?.plant})</span>
                 </h3>
                 <p className="text-xs text-[#8E8E93]">
                   Registered ESP UUID: <code className="text-emerald-400 font-mono">{focusedDevice.deviceId}</code>
@@ -876,7 +972,7 @@ export default function DashboardPage() {
                 className="px-2.5 py-1 bg-[#1C1C20] hover:bg-[#282830] text-xs font-medium rounded-lg border border-[#282830] transition flex items-center space-x-1.5 text-[#A1A1A6] hover:text-white"
               >
                 {copiedUuid ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedUuid ? "Copied!" : "Copy Node UUID"}</span>
+                <span>{copiedUuid ? "Copied!" : "Copy Module UUID"}</span>
               </button>
             </div>
 
@@ -940,7 +1036,9 @@ export default function DashboardPage() {
                 </div>
                 <div className="mt-2 flex items-center justify-between text-[11px] text-[#8E8E93]">
                   <span>Gated ADC Sensor</span>
-                  <span className="text-purple-400 font-medium">{focusedDevice.sensorType?.toUpperCase() || "PROBE"}</span>
+                  <span className="text-purple-400 font-medium">
+                    {focusedDevice.sensorType === "fc28" ? "FC-28 PROBE" : focusedDevice.sensorType === "md0869" ? "MD0869 PROBE" : "PROBE"}
+                  </span>
                 </div>
               </div>
 
@@ -993,7 +1091,7 @@ export default function DashboardPage() {
                     Real-Time Environmental Dynamics: {focusedDevice.name}
                   </h2>
                   <p className="text-xs text-[#8E8E93] mt-0.5">
-                    Isolated to {activeGreenhouse?.name} ({activeGreenhouse?.companyLocation})
+                    Greenhouse: {activeGreenhouse?.name} • Company: {activeGreenhouse?.companyName} ({activeGreenhouse?.companyLocation}) • Crop: {activeGreenhouse?.plant}
                   </p>
                 </div>
                 <div className="flex items-center space-x-2 text-xs text-[#8E8E93]">
@@ -1016,7 +1114,7 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-medium text-white flex items-center space-x-2">
                 <Activity className="w-4 h-4 text-emerald-400" />
-                <span>Live Feed ({activeGreenhouse?.name})</span>
+                <span>Live Feed ({activeGreenhouse?.name} - {activeGreenhouse?.plant})</span>
               </h3>
               <span className="text-[11px] text-[#8E8E93]">
                 {recentReadings.length} Ingested Packets
@@ -1144,7 +1242,7 @@ export default function DashboardPage() {
 
       {/* Footer */}
       <footer className="border-t border-[#202026] bg-[#0A0A0C] py-5 px-6 text-center text-xs text-[#52525A]">
-        Green Node IoT Monitoring Hub • Multi-Greenhouse ESP32-C3 SuperMini Cluster Architecture
+        Green Node IoT Monitoring Hub • Company & Greenhouse Cluster Architecture
       </footer>
 
       {/* PROVISIONING SUCCESS & FIRMWARE CODE MODAL */}
@@ -1156,7 +1254,7 @@ export default function DashboardPage() {
               <h3 className="text-base font-semibold text-white">Sensor Module Successfully Registered!</h3>
             </div>
             <p className="text-xs text-[#8E8E93] mb-4">
-              This sensor module has been registered to <strong className="text-white">{showProvisionedSuccess.greenhouseName}</strong> at <strong className="text-white">{showProvisionedSuccess.companyLocation}</strong>. Save this unique UUID into the ESP firmware so its telemetry is recognized.
+              Registered to <strong className="text-white">{showProvisionedSuccess.greenhouseName}</strong> (Crop: <strong className="text-emerald-400">{showProvisionedSuccess.plant}</strong>) at <strong className="text-white">{showProvisionedSuccess.companyLocation}</strong>.
             </p>
 
             <div className="bg-[#1C1C22] border border-[#282830] rounded-xl p-3 mb-4">
@@ -1176,14 +1274,9 @@ export default function DashboardPage() {
             </div>
 
             <div className="space-y-2 mb-5">
-              <span className="text-xs font-semibold text-[#A1A1A6] block">Option 1: Arduino Firmware Code (Paste in .ino)</span>
+              <span className="text-xs font-semibold text-[#A1A1A6] block">Arduino Firmware Code (Paste in .ino)</span>
               <div className="bg-[#0A0A0C] border border-[#24242A] rounded-xl p-3 font-mono text-[11px] text-teal-300 select-all overflow-x-auto">
                 const char* DEVICE_ID = &quot;{showProvisionedSuccess.deviceId}&quot;;
-              </div>
-
-              <span className="text-xs font-semibold text-[#A1A1A6] block pt-1">Option 2: Dynamic NVS Serial Command</span>
-              <div className="bg-[#0A0A0C] border border-[#24242A] rounded-xl p-3 font-mono text-[11px] text-purple-300 select-all overflow-x-auto">
-                SET_UUID {showProvisionedSuccess.deviceId}
               </div>
             </div>
 
@@ -1199,13 +1292,184 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* REGISTER SENSOR MODULE MODAL */}
+      {/* 1. REGISTER COMPANY MODAL (Asking Company Name and Location) */}
+      {showNewCompanyModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#141417] border border-[#282830] rounded-2xl p-6 w-full max-w-md shadow-2xl">
+            <h3 className="text-base font-semibold text-white mb-1 flex items-center space-x-2">
+              <Building2 className="w-4 h-4 text-emerald-400" />
+              <span>Register Company</span>
+            </h3>
+            <p className="text-xs text-[#8E8E93] mb-4">
+              Enter your corporate agriculture company name and primary facility location.
+            </p>
+
+            <form onSubmit={handleRegisterCompany} className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
+                  Company Name *
+                </label>
+                <input
+                  type="text"
+                  value={newCompanyName}
+                  onChange={(e) => setNewCompanyName(e.target.value)}
+                  placeholder="e.g. Ceylon Agro Tech Corp"
+                  required
+                  className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white placeholder-[#5A5A60] focus:outline-none focus:border-emerald-500/60"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
+                  Company Location / Facility *
+                </label>
+                <input
+                  type="text"
+                  value={newCompanyLocation}
+                  onChange={(e) => setNewCompanyLocation(e.target.value)}
+                  placeholder="e.g. Colombo Agri Facility or Nuwara Eliya High Farm"
+                  required
+                  className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white placeholder-[#5A5A60] focus:outline-none focus:border-emerald-500/60"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
+                  Description (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={newCompanyDescription}
+                  onChange={(e) => setNewCompanyDescription(e.target.value)}
+                  placeholder="e.g. Commercial vertical farming & hydroponics"
+                  className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white placeholder-[#5A5A60] focus:outline-none focus:border-emerald-500/60"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowNewCompanyModal(false)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium text-[#8E8E93] hover:text-white transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isCreatingCompany}
+                  className="px-4 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white rounded-lg text-xs font-medium shadow-md shadow-emerald-500/20 transition disabled:opacity-50"
+                >
+                  {isCreatingCompany ? "Registering..." : "Register Company"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 2. REGISTER GREENHOUSE MODAL (Under Registered Company, asking for Plant/Crop) */}
+      {showNewGreenhouseModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#141417] border border-[#282830] rounded-2xl p-6 w-full max-w-md shadow-2xl">
+            <h3 className="text-base font-semibold text-white mb-1 flex items-center space-x-2">
+              <Warehouse className="w-4 h-4 text-teal-400" />
+              <span>Register Greenhouse</span>
+            </h3>
+            <p className="text-xs text-[#8E8E93] mb-4">
+              Register a greenhouse under an existing company and designate the target plant / crop.
+            </p>
+
+            <form onSubmit={handleCreateGreenhouse} className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
+                  Registered Company *
+                </label>
+                <select
+                  value={newGhCompanyId}
+                  onChange={(e) => setNewGhCompanyId(e.target.value)}
+                  className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500/60"
+                  required
+                >
+                  {companies.map((c) => (
+                    <option key={c.companyId} value={c.companyId}>
+                      {c.name} — {c.location}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
+                  Greenhouse Name *
+                </label>
+                <input
+                  type="text"
+                  value={newGhName}
+                  onChange={(e) => setNewGhName(e.target.value)}
+                  placeholder="e.g. Greenhouse 01 or Tunnel Bay A"
+                  required
+                  className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white placeholder-[#5A5A60] focus:outline-none focus:border-emerald-500/60"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
+                  Target Plant / Crop *
+                </label>
+                <input
+                  type="text"
+                  value={newGhPlant}
+                  onChange={(e) => setNewGhPlant(e.target.value)}
+                  placeholder="e.g. Heirloom Tomatoes, Strawberries, Bell Peppers, Basil"
+                  required
+                  className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white placeholder-[#5A5A60] focus:outline-none focus:border-emerald-500/60"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
+                  Description (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={newGhDescription}
+                  onChange={(e) => setNewGhDescription(e.target.value)}
+                  placeholder="e.g. Automated drip-irrigation hydroponic setup"
+                  className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white placeholder-[#5A5A60] focus:outline-none focus:border-emerald-500/60"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowNewGreenhouseModal(false)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium text-[#8E8E93] hover:text-white transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isCreatingGh}
+                  className="px-4 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white rounded-lg text-xs font-medium shadow-md shadow-emerald-500/20 transition disabled:opacity-50"
+                >
+                  {isCreatingGh ? "Creating..." : "Register Greenhouse"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 3. REGISTER SENSOR MODULE MODAL */}
       {showRegisterModal && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-[#141417] border border-[#282830] rounded-2xl p-6 w-full max-w-md shadow-2xl">
-            <h3 className="text-base font-semibold text-white mb-1">Register Sensor Module</h3>
+            <h3 className="text-base font-semibold text-white mb-1 flex items-center space-x-2">
+              <Cpu className="w-4 h-4 text-emerald-400" />
+              <span>Register Sensor Module</span>
+            </h3>
             <p className="text-xs text-[#8E8E93] mb-4">
-              Pre-register this sensor module so its telemetry is linked to a Greenhouse and not mixed with other nodes.
+              Pre-register this module so its telemetry is linked to a Greenhouse and not mixed with other nodes.
             </p>
 
             <form onSubmit={handleRegisterDevice} className="space-y-3.5">
@@ -1221,7 +1485,7 @@ export default function DashboardPage() {
                 >
                   {greenhouses.map((g) => (
                     <option key={g.greenhouseId} value={g.greenhouseId}>
-                      {g.name} ({g.companyLocation})
+                      {g.name} ({g.companyName}) — 🌱 {g.plant}
                     </option>
                   ))}
                 </select>
@@ -1296,78 +1560,6 @@ export default function DashboardPage() {
                   className="px-4 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white rounded-lg text-xs font-medium shadow-md shadow-emerald-500/20 transition disabled:opacity-50"
                 >
                   {isRegistering ? "Registering..." : "Register Sensor Module"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* CREATE GREENHOUSE MODAL */}
-      {showNewGreenhouseModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#141417] border border-[#282830] rounded-2xl p-6 w-full max-w-md shadow-2xl">
-            <h3 className="text-base font-semibold text-white mb-1">Create New Greenhouse</h3>
-            <p className="text-xs text-[#8E8E93] mb-4">
-              Add a greenhouse to organize and group your ESP sensor nodes.
-            </p>
-
-            <form onSubmit={handleCreateGreenhouse} className="space-y-3.5">
-              <div>
-                <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
-                  Company Location / Facility *
-                </label>
-                <input
-                  type="text"
-                  value={newGhCompany}
-                  onChange={(e) => setNewGhCompany(e.target.value)}
-                  placeholder="e.g. Colombo Agri Facility or Nuwara Eliya Farm"
-                  required
-                  className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white placeholder-[#5A5A60] focus:outline-none focus:border-emerald-500/60"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
-                  Greenhouse Name *
-                </label>
-                <input
-                  type="text"
-                  value={newGhName}
-                  onChange={(e) => setNewGhName(e.target.value)}
-                  placeholder="e.g. Greenhouse 02 - Nursery Bay"
-                  required
-                  className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white placeholder-[#5A5A60] focus:outline-none focus:border-emerald-500/60"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
-                  Description (Optional)
-                </label>
-                <input
-                  type="text"
-                  value={newGhDescription}
-                  onChange={(e) => setNewGhDescription(e.target.value)}
-                  placeholder="e.g. Microgreens and nursery seedling propagation"
-                  className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white placeholder-[#5A5A60] focus:outline-none focus:border-emerald-500/60"
-                />
-              </div>
-
-              <div className="flex justify-end space-x-2 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setShowNewGreenhouseModal(false)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium text-[#8E8E93] hover:text-white transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isCreatingGh}
-                  className="px-4 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white rounded-lg text-xs font-medium shadow-md shadow-emerald-500/20 transition disabled:opacity-50"
-                >
-                  {isCreatingGh ? "Creating..." : "Create Greenhouse"}
                 </button>
               </div>
             </form>

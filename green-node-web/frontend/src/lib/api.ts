@@ -29,9 +29,12 @@ export function getWebSocketUrl(): string {
 export interface Reading {
   id?: string;
   deviceId: string;
+  companyId?: string;
+  companyName?: string;
   companyLocation?: string;
   greenhouseId?: string;
   greenhouseName?: string;
+  plant?: string;
   temperature: number;
   humidity: number;
   soilMoisture: number;
@@ -54,9 +57,12 @@ export interface Device {
   id?: string;
   deviceId: string;
   name: string;
+  companyId?: string;
+  companyName?: string;
   companyLocation?: string;
   greenhouseId?: string;
   greenhouseName?: string;
+  plant?: string;
   sensorType?: string;
   location?: string;
   wifiSsid?: string;
@@ -77,11 +83,29 @@ export interface Device {
   };
 }
 
+export interface Company {
+  id?: string;
+  companyId: string;
+  name: string;
+  location: string;
+  description?: string;
+  totalGreenhouses?: number;
+  greenhouses?: Array<{
+    greenhouseId: string;
+    name: string;
+    plant: string;
+    assignedDevicesCount: number;
+  }>;
+}
+
 export interface Greenhouse {
   id?: string;
   greenhouseId: string;
   name: string;
+  companyId: string;
+  companyName: string;
   companyLocation: string;
+  plant: string;
   description?: string;
   assignedDeviceIds: string[];
   totalDevices?: number;
@@ -107,12 +131,42 @@ export interface SystemLog {
 }
 
 // --------------------------------------------------------------------------
-// Greenhouse APIs
+// Company APIs
 // --------------------------------------------------------------------------
 
-export async function fetchGreenhouses(companyLocation?: string): Promise<Greenhouse[]> {
-  const url = companyLocation
-    ? `${getBackendUrl()}/api/greenhouses?companyLocation=${encodeURIComponent(companyLocation)}`
+export async function fetchCompanies(): Promise<Company[]> {
+  const res = await fetch(`${getBackendUrl()}/api/companies`);
+  if (!res.ok) throw new Error("Failed to fetch companies");
+  const json = await res.json();
+  return json.data || [];
+}
+
+export async function createCompany(data: {
+  companyId?: string;
+  name: string;
+  location: string;
+  description?: string;
+}): Promise<Company> {
+  const res = await fetch(`${getBackendUrl()}/api/companies`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error || "Failed to register company");
+  }
+  const json = await res.json();
+  return json.data;
+}
+
+// --------------------------------------------------------------------------
+// Greenhouse APIs (Under Registered Company)
+// --------------------------------------------------------------------------
+
+export async function fetchGreenhouses(companyId?: string): Promise<Greenhouse[]> {
+  const url = companyId
+    ? `${getBackendUrl()}/api/greenhouses?companyId=${encodeURIComponent(companyId)}`
     : `${getBackendUrl()}/api/greenhouses`;
   const res = await fetch(url);
   if (!res.ok) throw new Error("Failed to fetch greenhouses");
@@ -129,8 +183,9 @@ export async function fetchGreenhouseOverview(greenhouseId: string): Promise<Gre
 
 export async function createGreenhouse(data: {
   greenhouseId?: string;
+  companyId: string;
   name: string;
-  companyLocation: string;
+  plant: string;
   description?: string;
 }): Promise<Greenhouse> {
   const res = await fetch(`${getBackendUrl()}/api/greenhouses`, {
@@ -160,13 +215,13 @@ export async function assignDeviceToGreenhouse(greenhouseId: string, deviceId: s
 }
 
 // --------------------------------------------------------------------------
-// Device APIs
+// Device APIs (Sensor Module Registration)
 // --------------------------------------------------------------------------
 
-export async function fetchDevices(greenhouseId?: string, companyLocation?: string): Promise<Device[]> {
+export async function fetchDevices(greenhouseId?: string, companyId?: string): Promise<Device[]> {
   const params = new URLSearchParams();
   if (greenhouseId) params.append("greenhouseId", greenhouseId);
-  if (companyLocation) params.append("companyLocation", companyLocation);
+  if (companyId) params.append("companyId", companyId);
 
   const queryStr = params.toString() ? `?${params.toString()}` : "";
   const res = await fetch(`${getBackendUrl()}/api/devices${queryStr}`);
@@ -178,9 +233,7 @@ export async function fetchDevices(greenhouseId?: string, companyLocation?: stri
 export async function registerDevice(data: {
   deviceId?: string;
   name?: string;
-  companyLocation?: string;
   greenhouseId?: string;
-  greenhouseName?: string;
   sensorType?: string;
   location?: string;
 }): Promise<Device> {
@@ -191,7 +244,7 @@ export async function registerDevice(data: {
   });
   if (!res.ok) {
     const err = await res.json();
-    throw new Error(err.error || "Failed to register device");
+    throw new Error(err.error || "Failed to register sensor module");
   }
   const json = await res.json();
   return json.data;

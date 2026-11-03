@@ -3,9 +3,12 @@ import mongoose, { Schema, Document } from 'mongoose';
 export interface IDevice extends Document {
   deviceId: string;                // Unique UUID of the node (provisioned to ESP)
   name: string;                    // Friendly name, e.g. "Canopy Sensor - Zone 1"
-  companyLocation: string;          // Company site/location, e.g. "Colombo Agri Facility"
-  greenhouseId: string;            // ID of assigned greenhouse, e.g. "gh-01"
+  companyId: string;               // Reference to Company
+  companyName: string;             // Company name, e.g. "Ceylon Agri Corp"
+  companyLocation: string;         // Company site/location, e.g. "Colombo Agri Facility"
+  greenhouseId: string;            // ID of assigned greenhouse, e.g. "greenhouse-01"
   greenhouseName: string;          // Cached greenhouse name, e.g. "Greenhouse 01"
+  plant: string;                   // Crop growing in greenhouse, e.g. "Heirloom Tomatoes"
   sensorType: string;              // 'fc28' | 'md0869' | 'combo' | 'generic'
   isRegistered: boolean;           // True only when explicitly registered by admin
   location: string;                // Specific sub-zone/bed location
@@ -40,19 +43,33 @@ const DeviceSchema: Schema = new Schema<IDevice>(
     name: {
       type: String,
       required: false,
-      default: 'Sensor Node'
+      default: 'Sensor Module'
+    },
+    companyId: {
+      type: String,
+      required: false,
+      default: 'default-company',
+      trim: true,
+      lowercase: true,
+      index: true
+    },
+    companyName: {
+      type: String,
+      required: false,
+      default: 'Main Facility',
+      trim: true
     },
     companyLocation: {
       type: String,
       required: false,
-      default: 'Main Facility',
+      default: 'Main Location',
       trim: true,
       index: true
     },
     greenhouseId: {
       type: String,
       required: false,
-      default: 'unassigned-greenhouse',
+      default: 'greenhouse-01',
       trim: true,
       lowercase: true,
       index: true
@@ -60,13 +77,19 @@ const DeviceSchema: Schema = new Schema<IDevice>(
     greenhouseName: {
       type: String,
       required: false,
-      default: 'Unassigned Greenhouse',
+      default: 'Greenhouse 01',
+      trim: true
+    },
+    plant: {
+      type: String,
+      required: false,
+      default: 'Mixed Crops',
       trim: true
     },
     sensorType: {
       type: String,
       required: false,
-      default: 'generic',
+      default: 'fc28',
       trim: true
     },
     isRegistered: {
@@ -129,8 +152,7 @@ const DeviceSchema: Schema = new Schema<IDevice>(
   }
 );
 
-// Compound index for querying devices by greenhouse
 DeviceSchema.index({ greenhouseId: 1, isRegistered: 1 });
-DeviceSchema.index({ companyLocation: 1, greenhouseId: 1 });
+DeviceSchema.index({ companyId: 1, greenhouseId: 1 });
 
 export const Device = mongoose.model<IDevice>('Device', DeviceSchema);

@@ -12,7 +12,12 @@ router.get('/readings', ReadingController.getReadings);
 router.get('/readings/latest', ReadingController.getLatestReading);
 router.get('/readings/stats', ReadingController.getStats);
 
-// Greenhouse hierarchy management
+// Company management
+router.post('/companies', ReadingController.createCompany);
+router.get('/companies', ReadingController.getCompanies);
+router.get('/companies/:companyId', ReadingController.getCompanyById);
+
+// Greenhouse hierarchy management (under registered Company)
 router.post('/greenhouses', ReadingController.createGreenhouse);
 router.get('/greenhouses', ReadingController.getGreenhouses);
 router.get('/greenhouses/:greenhouseId/overview', ReadingController.getGreenhouseOverview);
