@@ -1,5 +1,6 @@
 import { Reading, IReading } from '../models/Reading.js';
 import { Device, IDevice } from '../models/Device.js';
+import { Greenhouse, IGreenhouse } from '../models/Greenhouse.js';
 import { Log } from '../models/Log.js';
 import { broadcast } from './websocket.service.js';
 import { LoggerService } from './logger.service.js';
@@ -8,17 +9,50 @@ import type {
   QueryReadingsInput,
   RegisterDeviceInput,
   UpdateDeviceInput,
-  HeartbeatInput
+  HeartbeatInput,
+  CreateGreenhouseInput
 } from '../schemas/reading.schema.js';
 
 export class ReadingService {
   /**
-   * Save a single sensor reading and broadcast it in real time
+   * Save a single sensor reading and broadcast it in real time.
+   * STRICT REGISTRATION ENFORCED: Rejects any ESP UUID that has not been pre-registered.
    */
   static async saveReading(input: CreateReadingInput, callerIp?: string): Promise<IReading> {
-    const reading = new Reading(input);
+    const normalizedDeviceId = input.deviceId.toLowerCase();
+
+    // 1. Mandatory Pre-Registration Verification
+    const registeredDevice = await Device.findOne({
+      deviceId: normalizedDeviceId,
+      isRegistered: true
+    });
+
+    if (!registeredDevice) {
+      await LoggerService.recordLog({
+        level: 'warn',
+        category: 'telemetry',
+        deviceId: normalizedDeviceId,
+        message: `Blocked incoming packet from UNREGISTERED ESP node "${normalizedDeviceId}". Register this device in the dashboard first.`,
+        details: { deviceId: normalizedDeviceId, callerIp }
+      });
+
+      const err: any = new Error(
+        `ESP device "${normalizedDeviceId}" is not registered. Please register the device with a Company Location and Greenhouse in the dashboard first.`
+      );
+      err.statusCode = 403;
+      throw err;
+    }
+
+    // 2. Persist Reading tagged with Company Location and Greenhouse
+    const reading = new Reading({
+      ...input,
+      deviceId: normalizedDeviceId,
+      companyLocation: registeredDevice.companyLocation,
+      greenhouseId: registeredDevice.greenhouseId
+    });
     const savedReading = await reading.save();
 
+    // 3. Update Device state
     const updateFields: any = {
       lastSeen: savedReading.timestamp,
       status: 'online',
@@ -41,40 +75,33 @@ export class ReadingService {
       updateFields.ipAddress = callerIp.replace('::ffff:', '');
     }
 
-    const device = await Device.findOneAndUpdate(
-      { deviceId: input.deviceId },
-      {
-        $set: updateFields,
-        $setOnInsert: {
-          name: `Sensor Node ${input.deviceId.substring(0, 8)}`,
-          location: 'Unassigned Zone',
-          heartbeatTimeoutSeconds: 60,
-          port: 80
-        }
-      },
-      { upsert: true, new: true }
-    );
+    await Device.updateOne({ _id: registeredDevice._id }, { $set: updateFields });
 
+    // 4. Real-time broadcast with Greenhouse metadata
     broadcast('new_reading', {
       ...savedReading.toObject(),
-      deviceLocation: device.location,
-      deviceName: device.name,
+      companyLocation: registeredDevice.companyLocation,
+      greenhouseId: registeredDevice.greenhouseId,
+      greenhouseName: registeredDevice.greenhouseName,
+      deviceLocation: registeredDevice.location,
+      deviceName: registeredDevice.name,
       deviceStatus: 'online'
     });
 
-    // Auto-save log to database
+    // 5. Auto-save log to database
     await LoggerService.recordLog({
       level: 'success',
       category: 'telemetry',
       deviceId: savedReading.deviceId,
-      message: `Received sensor packet: Temp=${savedReading.temperature}°C, Hum=${savedReading.humidity}%, Soil=${savedReading.soilMoisture}%, Light=${savedReading.light} Lux${savedReading.espTemperature !== undefined ? `, ESP=${savedReading.espTemperature}°C` : ""}`,
+      message: `[${registeredDevice.greenhouseName}] Packet from "${registeredDevice.name}": Temp=${savedReading.temperature}°C, Hum=${savedReading.humidity}%, Soil=${savedReading.soilMoisture}%, Light=${savedReading.light} Lux`,
       details: {
+        greenhouseId: registeredDevice.greenhouseId,
+        companyLocation: registeredDevice.companyLocation,
         temperature: savedReading.temperature,
         humidity: savedReading.humidity,
         soilMoisture: savedReading.soilMoisture,
         light: savedReading.light,
-        espTemperature: savedReading.espTemperature,
-        metadata: savedReading.metadata
+        espTemperature: savedReading.espTemperature
       }
     });
 
@@ -82,57 +109,79 @@ export class ReadingService {
   }
 
   /**
-   * Bulk insert multiple readings
+   * Bulk insert multiple readings with strict registration check
    */
   static async saveBatchReadings(readingsData: CreateReadingInput[]): Promise<{ count: number }> {
-    const inserted = await Reading.insertMany(readingsData);
+    if (readingsData.length === 0) return { count: 0 };
+
+    // Get list of distinct deviceIds
+    const distinctIds = Array.from(new Set(readingsData.map((r) => r.deviceId.toLowerCase())));
+    const registeredDevices = await Device.find({
+      deviceId: { $in: distinctIds },
+      isRegistered: true
+    }).lean();
+
+    const registeredMap = new Map<string, any>(
+      registeredDevices.map((d) => [d.deviceId.toLowerCase(), d])
+    );
+
+    // Filter readings to only registered devices
+    const validReadings: any[] = [];
+    for (const r of readingsData) {
+      const dev = registeredMap.get(r.deviceId.toLowerCase());
+      if (dev) {
+        validReadings.push({
+          ...r,
+          deviceId: r.deviceId.toLowerCase(),
+          companyLocation: dev.companyLocation,
+          greenhouseId: dev.greenhouseId
+        });
+      }
+    }
+
+    if (validReadings.length === 0) {
+      const err: any = new Error('None of the device IDs in this batch are registered.');
+      err.statusCode = 403;
+      throw err;
+    }
+
+    const inserted = await Reading.insertMany(validReadings);
 
     if (inserted.length > 0) {
       const latest = inserted.reduce((prev, curr) =>
         new Date(curr.timestamp) > new Date(prev.timestamp) ? curr : prev
       );
+      const dev = registeredMap.get(latest.deviceId.toLowerCase());
 
-      const device = await Device.findOneAndUpdate(
-        { deviceId: latest.deviceId },
-        {
-          $set: {
-            lastSeen: latest.timestamp,
-            status: 'online',
-            latestReading: {
-              temperature: latest.temperature,
-              humidity: latest.humidity,
-              soilMoisture: latest.soilMoisture,
-              light: latest.light,
-              espTemperature: latest.espTemperature,
-              wifiSsid: latest.wifiSsid,
-              timestamp: latest.timestamp
+      if (dev) {
+        await Device.updateOne(
+          { _id: dev._id },
+          {
+            $set: {
+              lastSeen: latest.timestamp,
+              status: 'online',
+              latestReading: {
+                temperature: latest.temperature,
+                humidity: latest.humidity,
+                soilMoisture: latest.soilMoisture,
+                light: latest.light,
+                espTemperature: latest.espTemperature,
+                wifiSsid: latest.wifiSsid,
+                timestamp: latest.timestamp
+              }
             }
-          },
-          $setOnInsert: {
-            name: `Sensor Node ${latest.deviceId.substring(0, 8)}`,
-            location: 'Unassigned Zone',
-            heartbeatTimeoutSeconds: 60,
-            port: 80
           }
-        },
-        { upsert: true, new: true }
-      );
+        );
+      }
 
       broadcast('batch_readings', {
         count: inserted.length,
         latest: {
           ...latest.toObject(),
-          deviceLocation: device?.location,
-          deviceName: device?.name
+          greenhouseId: dev?.greenhouseId,
+          companyLocation: dev?.companyLocation,
+          deviceName: dev?.name
         }
-      });
-
-      await LoggerService.recordLog({
-        level: 'info',
-        category: 'telemetry',
-        deviceId: latest.deviceId,
-        message: `Batch ingested ${inserted.length} readings for node ${latest.deviceId}`,
-        details: { count: inserted.length }
       });
     }
 
@@ -143,12 +192,18 @@ export class ReadingService {
    * Query readings with filtering, pagination, and sorting
    */
   static async getReadings(query: QueryReadingsInput) {
-    const { deviceId, startDate, endDate, page, limit, sortBy, sortOrder } = query;
+    const { deviceId, greenhouseId, companyLocation, startDate, endDate, page, limit, sortBy, sortOrder } = query;
 
     const filter: any = {};
 
     if (deviceId) {
       filter.deviceId = deviceId.toLowerCase();
+    }
+    if (greenhouseId) {
+      filter.greenhouseId = greenhouseId.toLowerCase();
+    }
+    if (companyLocation) {
+      filter.companyLocation = companyLocation;
     }
 
     if (startDate || endDate) {
@@ -181,10 +236,12 @@ export class ReadingService {
   /**
    * Get latest reading and attach device status
    */
-  static async getLatestReading(deviceId?: string) {
-    const filter = deviceId ? { deviceId: deviceId.toLowerCase() } : {};
-    const reading = await Reading.findOne(filter).sort({ timestamp: -1 }).lean();
+  static async getLatestReading(deviceId?: string, greenhouseId?: string) {
+    const filter: any = {};
+    if (deviceId) filter.deviceId = deviceId.toLowerCase();
+    if (greenhouseId) filter.greenhouseId = greenhouseId.toLowerCase();
 
+    const reading = await Reading.findOne(filter).sort({ timestamp: -1 }).lean();
     if (!reading) return null;
 
     const device = await Device.findOne({ deviceId: reading.deviceId }).lean();
@@ -194,6 +251,9 @@ export class ReadingService {
       ...reading,
       deviceLocation: device?.location || 'Unassigned Zone',
       deviceName: device?.name || `Sensor Node ${reading.deviceId.substring(0, 8)}`,
+      greenhouseId: device?.greenhouseId || reading.greenhouseId || 'unassigned',
+      greenhouseName: device?.greenhouseName || 'Unassigned Greenhouse',
+      companyLocation: device?.companyLocation || reading.companyLocation || 'Main Facility',
       deviceStatus: health?.status || 'unknown',
       isDeviceOnline: health?.isOnline ?? false
     };
@@ -202,12 +262,15 @@ export class ReadingService {
   /**
    * Calculate aggregated metrics (min, max, avg) for all sensors
    */
-  static async getStats(deviceId?: string, hours: number = 24) {
+  static async getStats(deviceId?: string, hours: number = 24, greenhouseId?: string) {
     const sinceDate = new Date(Date.now() - hours * 60 * 60 * 1000);
     const matchFilter: any = { timestamp: { $gte: sinceDate } };
 
     if (deviceId) {
       matchFilter.deviceId = deviceId.toLowerCase();
+    }
+    if (greenhouseId) {
+      matchFilter.greenhouseId = greenhouseId.toLowerCase();
     }
 
     const aggregation = await Reading.aggregate([
@@ -281,13 +344,43 @@ export class ReadingService {
   }
 
   /**
-   * Device Management: Register a device with its assigned location in database
+   * Device Management: Register an ESP node with its assigned Company Location & Greenhouse
    */
   static async registerDevice(input: RegisterDeviceInput): Promise<IDevice> {
+    const deviceId = input.deviceId.toLowerCase();
+    const greenhouseId = input.greenhouseId?.toLowerCase().trim() || 'greenhouse-01';
+    const companyLocation = input.companyLocation?.trim() || 'Colombo Agri Facility';
+
+    // Verify or find Greenhouse name
+    let greenhouseName = input.greenhouseName?.trim();
+    let greenhouse = await Greenhouse.findOne({ greenhouseId });
+
+    if (!greenhouse) {
+      // Auto-create greenhouse if it doesn't exist
+      greenhouse = await Greenhouse.create({
+        greenhouseId,
+        name: greenhouseName || `Greenhouse ${greenhouseId.replace(/^gh-?/, '').toUpperCase()}`,
+        companyLocation,
+        assignedDeviceIds: [deviceId]
+      });
+      greenhouseName = greenhouse.name;
+    } else {
+      if (!greenhouseName) greenhouseName = greenhouse.name;
+      if (!greenhouse.assignedDeviceIds.includes(deviceId)) {
+        greenhouse.assignedDeviceIds.push(deviceId);
+        await greenhouse.save();
+      }
+    }
+
     const updateData: any = {
-      deviceId: input.deviceId.toLowerCase(),
-      location: input.location,
-      name: input.name || `Sensor Node ${input.deviceId.substring(0, 8)}`,
+      deviceId,
+      name: input.name?.trim() || `Sensor Node ${deviceId.substring(0, 8)}`,
+      companyLocation,
+      greenhouseId,
+      greenhouseName,
+      sensorType: input.sensorType || 'generic',
+      location: input.location?.trim() || 'Zone 1',
+      isRegistered: true,
       port: input.port || 80,
       heartbeatTimeoutSeconds: input.heartbeatTimeoutSeconds || 60
     };
@@ -297,7 +390,7 @@ export class ReadingService {
     }
 
     const device = await Device.findOneAndUpdate(
-      { deviceId: input.deviceId.toLowerCase() },
+      { deviceId },
       { $set: updateData },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
@@ -306,8 +399,21 @@ export class ReadingService {
       level: 'success',
       category: 'device',
       deviceId: device.deviceId,
-      message: `Node "${device.name}" registered and assigned to "${device.location}"`,
-      details: { name: device.name, location: device.location, ipAddress: device.ipAddress }
+      message: `ESP Node "${device.name}" registered to [${device.greenhouseName}] at "${device.companyLocation}"`,
+      details: {
+        deviceId: device.deviceId,
+        name: device.name,
+        greenhouseId: device.greenhouseId,
+        companyLocation: device.companyLocation
+      }
+    });
+
+    broadcast('device_registered', {
+      deviceId: device.deviceId,
+      name: device.name,
+      greenhouseId: device.greenhouseId,
+      greenhouseName: device.greenhouseName,
+      companyLocation: device.companyLocation
     });
 
     return device;
@@ -317,18 +423,32 @@ export class ReadingService {
    * Device Management: Update existing device metadata
    */
   static async updateDevice(deviceId: string, input: UpdateDeviceInput): Promise<IDevice | null> {
-    return Device.findOneAndUpdate(
+    const updated = await Device.findOneAndUpdate(
       { deviceId: deviceId.toLowerCase() },
       { $set: input },
       { new: true }
     );
+
+    // If greenhouse changed, sync greenhouse lists
+    if (updated && input.greenhouseId) {
+      await Greenhouse.updateOne(
+        { greenhouseId: input.greenhouseId.toLowerCase() },
+        { $addToSet: { assignedDeviceIds: deviceId.toLowerCase() } }
+      );
+    }
+
+    return updated;
   }
 
   /**
-   * Device Management: List all registered devices with computed real-time status
+   * Device Management: List registered devices, optionally filtered by greenhouse or company
    */
-  static async getDevices() {
-    const devices = await Device.find().sort({ lastSeen: -1 }).lean();
+  static async getDevices(greenhouseId?: string, companyLocation?: string) {
+    const filter: any = { isRegistered: true };
+    if (greenhouseId) filter.greenhouseId = greenhouseId.toLowerCase();
+    if (companyLocation) filter.companyLocation = companyLocation;
+
+    const devices = await Device.find(filter).sort({ lastSeen: -1 }).lean();
     return devices.map((device) => {
       const health = this.computeHealth(device);
       return {
@@ -356,6 +476,201 @@ export class ReadingService {
     };
   }
 
+  // ==========================================================================
+  // GREENHOUSE MANAGEMENT METHODS
+  // ==========================================================================
+
+  /**
+   * Create a new Greenhouse under a Company Location
+   */
+  static async createGreenhouse(input: CreateGreenhouseInput): Promise<IGreenhouse> {
+    const greenhouseId = input.greenhouseId.toLowerCase();
+    const existing = await Greenhouse.findOne({ greenhouseId });
+    if (existing) {
+      const err: any = new Error(`Greenhouse with ID "${greenhouseId}" already exists.`);
+      err.statusCode = 409;
+      throw err;
+    }
+
+    const greenhouse = await Greenhouse.create({
+      greenhouseId,
+      name: input.name,
+      companyLocation: input.companyLocation,
+      description: input.description,
+      assignedDeviceIds: input.assignedDeviceIds || []
+    });
+
+    await LoggerService.recordLog({
+      level: 'success',
+      category: 'system',
+      message: `Created Greenhouse "${greenhouse.name}" (${greenhouse.greenhouseId}) at "${greenhouse.companyLocation}"`,
+      details: { greenhouseId: greenhouse.greenhouseId, companyLocation: greenhouse.companyLocation }
+    });
+
+    return greenhouse;
+  }
+
+  /**
+   * List all Greenhouses with counts of assigned devices
+   */
+  static async getGreenhouses(companyLocation?: string) {
+    const filter: any = {};
+    if (companyLocation) filter.companyLocation = companyLocation;
+
+    const greenhouses = await Greenhouse.find(filter).sort({ name: 1 }).lean();
+    
+    // Attach live device health count for each greenhouse
+    const results = await Promise.all(
+      greenhouses.map(async (gh) => {
+        const devices = await Device.find({
+          deviceId: { $in: gh.assignedDeviceIds },
+          isRegistered: true
+        }).lean();
+
+        let onlineCount = 0;
+        const deviceSummaries = devices.map((d) => {
+          const health = this.computeHealth(d);
+          if (health.isOnline) onlineCount++;
+          return {
+            deviceId: d.deviceId,
+            name: d.name,
+            sensorType: d.sensorType,
+            status: health.status,
+            isOnline: health.isOnline,
+            latestReading: d.latestReading
+          };
+        });
+
+        return {
+          ...gh,
+          totalDevices: devices.length,
+          onlineDevices: onlineCount,
+          devices: deviceSummaries
+        };
+      })
+    );
+
+    return results;
+  }
+
+  /**
+   * Get single greenhouse by ID with detailed status of all assigned ESPs
+   */
+  static async getGreenhouseOverview(greenhouseId: string) {
+    const greenhouse = await Greenhouse.findOne({ greenhouseId: greenhouseId.toLowerCase() }).lean();
+    if (!greenhouse) return null;
+
+    // Fetch all registered devices assigned to this greenhouse
+    const devices = await Device.find({
+      $or: [
+        { deviceId: { $in: greenhouse.assignedDeviceIds } },
+        { greenhouseId: greenhouseId.toLowerCase() }
+      ],
+      isRegistered: true
+    }).lean();
+
+    let onlineCount = 0;
+    const deviceDetails = devices.map((d) => {
+      const health = this.computeHealth(d);
+      if (health.isOnline) onlineCount++;
+      return {
+        ...d,
+        status: health.status,
+        isOnline: health.isOnline,
+        secondsSinceLastSeen: health.secondsSinceLastSeen
+      };
+    });
+
+    // Compute Greenhouse-wide aggregated climate metrics across online nodes
+    let totalTemp = 0, countTemp = 0;
+    let totalHum = 0, countHum = 0;
+    let totalSoil = 0, countSoil = 0;
+    let totalLight = 0, countLight = 0;
+
+    for (const d of deviceDetails) {
+      if (d.latestReading) {
+        if (typeof d.latestReading.temperature === 'number') {
+          totalTemp += d.latestReading.temperature;
+          countTemp++;
+        }
+        if (typeof d.latestReading.humidity === 'number') {
+          totalHum += d.latestReading.humidity;
+          countHum++;
+        }
+        if (typeof d.latestReading.soilMoisture === 'number') {
+          totalSoil += d.latestReading.soilMoisture;
+          countSoil++;
+        }
+        if (typeof d.latestReading.light === 'number') {
+          totalLight += d.latestReading.light;
+          countLight++;
+        }
+      }
+    }
+
+    const round = (val: number) => Math.round(val * 10) / 10;
+
+    return {
+      greenhouseId: greenhouse.greenhouseId,
+      name: greenhouse.name,
+      companyLocation: greenhouse.companyLocation,
+      description: greenhouse.description,
+      totalDevices: devices.length,
+      onlineDevices: onlineCount,
+      summary: {
+        avgTemperature: countTemp > 0 ? round(totalTemp / countTemp) : null,
+        avgHumidity: countHum > 0 ? round(totalHum / countHum) : null,
+        avgSoilMoisture: countSoil > 0 ? round(totalSoil / countSoil) : null,
+        avgLight: countLight > 0 ? round(totalLight / countLight) : null
+      },
+      devices: deviceDetails
+    };
+  }
+
+  /**
+   * Assign an existing ESP UUID to a Greenhouse
+   */
+  static async assignDeviceToGreenhouse(greenhouseId: string, deviceId: string) {
+    const normalizedDeviceId = deviceId.toLowerCase();
+    const normalizedGhId = greenhouseId.toLowerCase();
+
+    const greenhouse = await Greenhouse.findOne({ greenhouseId: normalizedGhId });
+    if (!greenhouse) {
+      const err: any = new Error(`Greenhouse "${greenhouseId}" not found`);
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const device = await Device.findOne({ deviceId: normalizedDeviceId });
+    if (!device) {
+      const err: any = new Error(`Device "${deviceId}" not found. Register it first.`);
+      err.statusCode = 404;
+      throw err;
+    }
+
+    // Update Device
+    device.greenhouseId = normalizedGhId;
+    device.greenhouseName = greenhouse.name;
+    device.companyLocation = greenhouse.companyLocation;
+    await device.save();
+
+    // Add to Greenhouse
+    if (!greenhouse.assignedDeviceIds.includes(normalizedDeviceId)) {
+      greenhouse.assignedDeviceIds.push(normalizedDeviceId);
+      await greenhouse.save();
+    }
+
+    await LoggerService.recordLog({
+      level: 'info',
+      category: 'device',
+      deviceId: normalizedDeviceId,
+      message: `Assigned ESP "${device.name}" (${normalizedDeviceId}) to Greenhouse "${greenhouse.name}"`,
+      details: { greenhouseId: normalizedGhId, deviceId: normalizedDeviceId }
+    });
+
+    return { greenhouse, device };
+  }
+
   /**
    * Heartbeat Ingestion: Record a ping/heartbeat sent from the ESP node
    */
@@ -364,6 +679,20 @@ export class ReadingService {
     input: HeartbeatInput,
     callerIp?: string
   ): Promise<IDevice> {
+    const normalizedDeviceId = deviceId.toLowerCase();
+
+    // Verify registration
+    const registeredDevice = await Device.findOne({
+      deviceId: normalizedDeviceId,
+      isRegistered: true
+    });
+
+    if (!registeredDevice) {
+      const err: any = new Error(`Heartbeat rejected: Device "${normalizedDeviceId}" is not registered.`);
+      err.statusCode = 403;
+      throw err;
+    }
+
     const now = new Date();
     const updateFields: any = {
       lastSeen: now,
@@ -379,38 +708,21 @@ export class ReadingService {
     if (input.port) updateFields.port = input.port;
     if (input.rssi !== undefined) updateFields.rssi = input.rssi;
 
-    const device = await Device.findOneAndUpdate(
-      { deviceId: deviceId.toLowerCase() },
-      {
-        $set: updateFields,
-        $setOnInsert: {
-          name: `Sensor Node ${deviceId.substring(0, 8)}`,
-          location: 'Unassigned Zone',
-          heartbeatTimeoutSeconds: 60
-        }
-      },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
-    );
+    await Device.updateOne({ _id: registeredDevice._id }, { $set: updateFields });
 
     broadcast('device_heartbeat', {
-      deviceId: device.deviceId,
-      name: device.name,
-      location: device.location,
+      deviceId: registeredDevice.deviceId,
+      name: registeredDevice.name,
+      greenhouseId: registeredDevice.greenhouseId,
+      greenhouseName: registeredDevice.greenhouseName,
+      companyLocation: registeredDevice.companyLocation,
       status: 'online',
       lastSeen: now.toISOString(),
-      ipAddress: device.ipAddress,
-      rssi: device.rssi
+      ipAddress: updateFields.ipAddress || registeredDevice.ipAddress,
+      rssi: input.rssi
     });
 
-    await LoggerService.recordLog({
-      level: 'info',
-      category: 'health',
-      deviceId: device.deviceId,
-      message: `Heartbeat acknowledged from "${device.name}" (RSSI: ${device.rssi ? device.rssi + ' dBm' : 'N/A'})`,
-      details: { ipAddress: device.ipAddress, rssi: device.rssi }
-    });
-
-    return device;
+    return registeredDevice;
   }
 
   /**
@@ -427,6 +739,9 @@ export class ReadingService {
     return {
       deviceId: device.deviceId,
       name: device.name,
+      companyLocation: device.companyLocation,
+      greenhouseId: device.greenhouseId,
+      greenhouseName: device.greenhouseName,
       location: device.location,
       isOnline: health.isOnline,
       status: health.status,
@@ -468,7 +783,7 @@ export class ReadingService {
     try {
       const response = await fetch(targetUrl, {
         method: 'GET',
-        headers: { 'Accept': 'application/json, text/plain, */*' },
+        headers: { Accept: 'application/json, text/plain, */*' },
         signal: AbortSignal.timeout(timeoutMs)
       });
 
@@ -483,7 +798,6 @@ export class ReadingService {
       const isOk = response.status >= 200 && response.status < 300;
 
       if (isOk) {
-        // Mark device as currently seen and online in database
         await Device.updateOne(
           { deviceId: device.deviceId },
           { $set: { lastSeen: new Date(), status: 'online' } }
@@ -519,7 +833,6 @@ export class ReadingService {
       const latencyMs = Date.now() - startTime;
       const isTimeout = err.name === 'TimeoutError' || err.message.includes('timeout');
 
-      // Update status to offline/warning
       await Device.updateOne(
         { deviceId: device.deviceId },
         { $set: { status: 'offline' } }
@@ -569,26 +882,48 @@ export class ReadingService {
   }
 
   /**
-   * Reset the entire database (wipe all readings & devices) and install the first node
+   * Reset the entire database and install initial Greenhouse + registered node
    */
   static async resetDatabase(firstNode?: {
     deviceId?: string;
     name?: string;
+    companyLocation?: string;
+    greenhouseId?: string;
+    greenhouseName?: string;
     location?: string;
     ipAddress?: string;
   }) {
     await Reading.deleteMany({});
     await Device.deleteMany({});
+    await Greenhouse.deleteMany({});
     await Log.deleteMany({});
 
     const initialId = firstNode?.deviceId?.toLowerCase() || 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
-    const initialName = firstNode?.name || 'ESP32 Sensor Node 01';
-    const initialLocation = firstNode?.location || 'Greenhouse Bay 1 - Tomatoes';
+    const initialName = firstNode?.name || 'ESP32 Node 01 (Canopy & Ambient)';
+    const companyLocation = firstNode?.companyLocation || 'Colombo Agri Facility';
+    const greenhouseId = firstNode?.greenhouseId || 'greenhouse-01';
+    const greenhouseName = firstNode?.greenhouseName || 'Greenhouse 01 - Hydroponics';
+    const initialLocation = firstNode?.location || 'Zone 1 - Hydroponic Bed';
 
+    // Seed default Greenhouse
+    const greenhouse = await Greenhouse.create({
+      greenhouseId,
+      name: greenhouseName,
+      companyLocation,
+      description: 'Main commercial production hydroponics bay with automated climate control',
+      assignedDeviceIds: [initialId]
+    });
+
+    // Seed primary registered device
     const firstDevice = await Device.create({
       deviceId: initialId,
       name: initialName,
+      companyLocation,
+      greenhouseId,
+      greenhouseName,
       location: initialLocation,
+      sensorType: 'combo',
+      isRegistered: true,
       ipAddress: firstNode?.ipAddress,
       port: 80,
       heartbeatTimeoutSeconds: 60,
@@ -600,17 +935,19 @@ export class ReadingService {
       level: 'warn',
       category: 'system',
       deviceId: initialId,
-      message: `Database reset performed. Reinstalled primary node "${initialName}" (${initialId})`,
-      details: { firstDeviceId: initialId, location: initialLocation }
+      message: `Database reset performed. Installed Greenhouse "${greenhouseName}" and registered ESP "${initialName}" (${initialId})`,
+      details: { greenhouseId, companyLocation, firstDeviceId: initialId }
     });
 
     broadcast('database_reset', {
       message: 'Database reset successfully',
+      greenhouse,
       firstDevice
     });
 
     return {
-      message: 'Database reset successfully. All previous readings and devices cleared.',
+      message: 'Database reset successfully. Greenhouse and initial registered ESP installed.',
+      greenhouse,
       firstDevice
     };
   }

@@ -115,6 +115,8 @@ export const batchReadingsSchema = z.object({
 
 export const queryReadingsSchema = z.object({
   deviceId: z.string().uuid().optional(),
+  greenhouseId: z.string().optional(),
+  companyLocation: z.string().optional(),
   startDate: z.string().datetime().optional(),
   endDate: z.string().datetime().optional(),
   page: z.coerce.number().int().positive().default(1),
@@ -130,7 +132,11 @@ export const registerDeviceSchema = z.object({
     .optional()
     .transform((val) => (val ? val.toLowerCase() : crypto.randomUUID())),
   name: z.string().min(1).max(100).optional(),
-  location: z.string().min(1, 'location cannot be empty').max(150, 'location too long'),
+  companyLocation: z.string().min(1).max(150).optional().default('Colombo Agri Facility'),
+  greenhouseId: z.string().min(1).max(100).optional().default('greenhouse-01'),
+  greenhouseName: z.string().min(1).max(100).optional(),
+  sensorType: z.string().optional().default('generic'),
+  location: z.string().min(1, 'location cannot be empty').max(150, 'location too long').optional().default('Zone 1'),
   ipAddress: z.string().optional(),
   port: z.number().int().min(1).max(65535).optional().default(80),
   heartbeatTimeoutSeconds: z.number().int().min(5).max(86400).optional().default(60)
@@ -138,6 +144,10 @@ export const registerDeviceSchema = z.object({
 
 export const updateDeviceSchema = z.object({
   name: z.string().min(1).max(100).optional(),
+  companyLocation: z.string().min(1).max(150).optional(),
+  greenhouseId: z.string().min(1).max(100).optional(),
+  greenhouseName: z.string().min(1).max(100).optional(),
+  sensorType: z.string().optional(),
   location: z.string().min(1).max(150).optional(),
   ipAddress: z.string().optional(),
   port: z.number().int().min(1).max(65535).optional(),
@@ -152,9 +162,27 @@ export const heartbeatSchema = z.object({
   uptimeSeconds: z.number().optional()
 });
 
+export const createGreenhouseSchema = z.object({
+  greenhouseId: z
+    .string()
+    .min(1)
+    .max(100)
+    .optional()
+    .transform((val) => (val ? val.toLowerCase().trim().replace(/\s+/g, '-') : `gh-${crypto.randomUUID().substring(0, 8)}`)),
+  name: z.string().min(1, 'Greenhouse name is required').max(100),
+  companyLocation: z.string().min(1, 'Company location is required').max(150),
+  description: z.string().max(500).optional(),
+  assignedDeviceIds: z.array(z.string().uuid()).optional().default([])
+});
+
+export const assignDeviceToGreenhouseSchema = z.object({
+  deviceId: z.string().uuid({ message: 'deviceId must be a valid UUID' }).transform((val) => val.toLowerCase())
+});
+
 export type CreateReadingInput = z.infer<typeof createReadingSchema>;
 export type BatchReadingsInput = z.infer<typeof batchReadingsSchema>;
 export type QueryReadingsInput = z.infer<typeof queryReadingsSchema>;
 export type RegisterDeviceInput = z.infer<typeof registerDeviceSchema>;
 export type UpdateDeviceInput = z.infer<typeof updateDeviceSchema>;
 export type HeartbeatInput = z.infer<typeof heartbeatSchema>;
+export type CreateGreenhouseInput = z.infer<typeof createGreenhouseSchema>;

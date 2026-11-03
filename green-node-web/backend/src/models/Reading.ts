@@ -2,6 +2,8 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IReading extends Document {
   deviceId: string;         // UUID of the sensor node
+  companyLocation?: string; // Company site/location
+  greenhouseId?: string;    // ID of the greenhouse
   temperature: number;      // in Celsius (°C)
   humidity: number;         // in % (0-100)
   soilMoisture: number;     // in % (0-100)
@@ -17,6 +19,19 @@ const ReadingSchema: Schema = new Schema<IReading>(
     deviceId: {
       type: String,
       required: [true, 'deviceId is required'],
+      trim: true,
+      lowercase: true,
+      index: true
+    },
+    companyLocation: {
+      type: String,
+      required: false,
+      trim: true,
+      index: true
+    },
+    greenhouseId: {
+      type: String,
+      required: false,
       trim: true,
       lowercase: true,
       index: true
@@ -71,5 +86,6 @@ const ReadingSchema: Schema = new Schema<IReading>(
 
 // Compound index for device and time-series lookups
 ReadingSchema.index({ deviceId: 1, timestamp: -1 });
+ReadingSchema.index({ greenhouseId: 1, timestamp: -1 });
 
 export const Reading = mongoose.model<IReading>('Reading', ReadingSchema);

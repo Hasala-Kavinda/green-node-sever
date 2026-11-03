@@ -3,7 +3,7 @@ import { ReadingController } from '../controllers/reading.controller.js';
 
 const router = Router();
 
-// Sensor readings ingestion
+// Sensor readings ingestion (Strict registration gatekeeper)
 router.post('/readings', ReadingController.createReading);
 router.post('/readings/batch', ReadingController.createBatchReadings);
 
@@ -12,7 +12,13 @@ router.get('/readings', ReadingController.getReadings);
 router.get('/readings/latest', ReadingController.getLatestReading);
 router.get('/readings/stats', ReadingController.getStats);
 
-// Device registration & metadata
+// Greenhouse hierarchy management
+router.post('/greenhouses', ReadingController.createGreenhouse);
+router.get('/greenhouses', ReadingController.getGreenhouses);
+router.get('/greenhouses/:greenhouseId/overview', ReadingController.getGreenhouseOverview);
+router.post('/greenhouses/:greenhouseId/assign', ReadingController.assignDeviceToGreenhouse);
+
+// Device registration & metadata (Provisioning ESPs with UUID + Greenhouse)
 router.post('/devices', ReadingController.registerDevice);
 router.get('/devices', ReadingController.getDevices);
 router.get('/devices/:deviceId', ReadingController.getDeviceById);

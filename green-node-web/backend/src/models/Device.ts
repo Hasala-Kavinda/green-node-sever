@@ -1,14 +1,19 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IDevice extends Document {
-  deviceId: string;       // Unique UUID of the node
-  name: string;           // Friendly name, e.g. "North Greenhouse Node"
-  location: string;       // Assigned location/zone registered in database
-  ipAddress?: string;     // Local/LAN IP address of the ESP (e.g. 192.168.1.150)
-  port?: number;          // Port for ESP's onboard HTTP health server (default: 80)
+  deviceId: string;                // Unique UUID of the node (provisioned to ESP)
+  name: string;                    // Friendly name, e.g. "Canopy Sensor - Zone 1"
+  companyLocation: string;          // Company site/location, e.g. "Colombo Agri Facility"
+  greenhouseId: string;            // ID of assigned greenhouse, e.g. "gh-01"
+  greenhouseName: string;          // Cached greenhouse name, e.g. "Greenhouse 01"
+  sensorType: string;              // 'fc28' | 'md0869' | 'combo' | 'generic'
+  isRegistered: boolean;           // True only when explicitly registered by admin
+  location: string;                // Specific sub-zone/bed location
+  ipAddress?: string;              // Local/LAN IP address of the ESP
+  port?: number;                   // Port for ESP's onboard HTTP health server (default: 80)
   heartbeatTimeoutSeconds: number; // Seconds before marking device as offline (default: 60)
-  rssi?: number;          // WiFi Signal Strength in dBm
-  wifiSsid?: string;      // Current connected Wi-Fi Network SSID
+  rssi?: number;                   // WiFi Signal Strength in dBm
+  wifiSsid?: string;               // Current connected Wi-Fi Network SSID
   lastSeen: Date;
   status: 'online' | 'warning' | 'offline';
   latestReading?: {
@@ -37,10 +42,42 @@ const DeviceSchema: Schema = new Schema<IDevice>(
       required: false,
       default: 'Sensor Node'
     },
+    companyLocation: {
+      type: String,
+      required: false,
+      default: 'Main Facility',
+      trim: true,
+      index: true
+    },
+    greenhouseId: {
+      type: String,
+      required: false,
+      default: 'unassigned-greenhouse',
+      trim: true,
+      lowercase: true,
+      index: true
+    },
+    greenhouseName: {
+      type: String,
+      required: false,
+      default: 'Unassigned Greenhouse',
+      trim: true
+    },
+    sensorType: {
+      type: String,
+      required: false,
+      default: 'generic',
+      trim: true
+    },
+    isRegistered: {
+      type: Boolean,
+      default: true,
+      index: true
+    },
     location: {
       type: String,
       required: false,
-      default: 'Unassigned Zone',
+      default: 'Zone 1',
       trim: true
     },
     ipAddress: {
@@ -91,5 +128,9 @@ const DeviceSchema: Schema = new Schema<IDevice>(
     versionKey: false
   }
 );
+
+// Compound index for querying devices by greenhouse
+DeviceSchema.index({ greenhouseId: 1, isRegistered: 1 });
+DeviceSchema.index({ companyLocation: 1, greenhouseId: 1 });
 
 export const Device = mongoose.model<IDevice>('Device', DeviceSchema);

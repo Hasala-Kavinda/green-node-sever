@@ -45,10 +45,17 @@ All values an operator or editor would ever need to change are isolated in **Sec
 ### 1A — Network & Backend
 | Constant | Default | Description |
 |---|---|---|
-| `WIFI_SSID` | `"Malith's A55"` | Wi-Fi network name |
-| `WIFI_PASSWORD` | `"malith26"` | Wi-Fi password |
+| `WIFI_SSID` | `"test"` | Wi-Fi network name |
+| `WIFI_PASSWORD` | `"malith12"` | Wi-Fi password |
 | `BACKEND_URL` | `"https://blue-circle.onrender.com/api/readings"` | Production Render HTTPS endpoint |
-| `DEVICE_ID` | `"a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"` | Registered Device UUID |
+| `DEVICE_ID` | `"a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"` | Registered Device UUID (Generated from Web Dashboard) |
+
+> [!IMPORTANT]
+> **Mandatory Pre-Registration Requirement**: The cloud backend rejects any sensor transmission whose `DEVICE_ID` has not been pre-registered on the Web Dashboard with a 403 Forbidden response. Before flashing:
+> 1. Open the Green Node Dashboard.
+> 2. Select the target **Company Location** and **Greenhouse**.
+> 3. Click **"Register Sensor Module"** to generate the unique UUID.
+> 4. Copy the generated UUID and paste it into `const char* DEVICE_ID = "...";` in Section 1.
 
 ### 1B — Timing & Telemetry Intervals
 | Constant | Default | Description |
