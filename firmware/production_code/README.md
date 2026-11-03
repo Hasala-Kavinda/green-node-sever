@@ -1,6 +1,6 @@
 # 🌿 Green Node — Production Firmware
 
-This directory contains the production-ready telemetry firmware for the **ESP32-C3 SuperMini**. Each sketch connects to Wi-Fi, acquires all sensor data, synchronises time from NTP (Sri Lanka Standard Time UTC+5:30), and POSTs an encrypted JSON payload via HTTPS to the Green Node cloud backend on Render.
+This directory contains the production-ready telemetry firmware for the **ESP32-C3 SuperMini**. Each sketch connects to Wi-Fi, acquires all sensor data, synchronises time from NTP (Sri Lanka Standard Time UTC+5:30), and POSTs an encrypted JSON payload to the Green Node cloud backend on Render or a local server.
 
 Two standalone editions are provided — select the one matching the soil sensor physically wired to your node:
 
@@ -8,6 +8,36 @@ Two standalone editions are provided — select the one matching the soil sensor
 |---|---|---|---|
 | **FC-28 Edition** | FC-28 Standard Probe | GPIO 1 (ADC1_CH1) | [`fc28_production/`](./fc28_production/) |
 | **MD0869 Edition** | MD0869 Reference Probe | GPIO 0 (ADC1_CH0) | [`md0869_production/`](./md0869_production/) |
+
+---
+
+## 🚀 Dynamic Provisioning via Wi-Fi Captive Portal (No Hardcoding Required!)
+
+You **no longer need to recompile or reflash** the firmware to configure Wi-Fi credentials or device UUIDs! 
+
+Each node includes an **Onboard Wi-Fi Captive Portal** with flash memory persistence (`Preferences.h` / NVS):
+
+### How to Provision a Sensor Node:
+1. **Pre-Register on Web Dashboard**:
+   - Open the Green Node Dashboard (`http://localhost:3000` or production web app).
+   - Under your **Company** and **Greenhouse**, click **"Register Sensor Module"**.
+   - Copy the generated 36-character UUID (e.g., `a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11`).
+2. **Power on the ESP32 Node**:
+   - If unconfigured, or if Wi-Fi cannot connect, the node automatically launches its setup hotspot.
+   - Or, **press and hold the onboard BOOT button (GPIO 9) for 3 seconds** anytime to force the portal.
+   - The onboard blue LED will flash rapidly (150ms).
+3. **Connect to Hotspot**:
+   - On your phone or laptop, join Wi-Fi network: **`GreenNode-Setup`** (Open network, no password).
+   - The setup portal will pop up automatically. If not, browse to **`http://192.168.4.1`**.
+4. **Save & Reboot**:
+   - Select your greenhouse Wi-Fi network from the detected networks dropdown.
+   - Enter your Wi-Fi password.
+   - Paste the copied **Sensor Module UUID**.
+   - (Optional) Set the backend host URL (defaults to `https://blue-circle.onrender.com` or set `http://192.168.x.x:4000` for local dev).
+   - Click **"💾 Save & Connect"**. The ESP32 saves to NVS and reboots within 2 seconds.
+
+> [!TIP]
+> **Field Reconfiguration**: If you relocate a node or change the greenhouse router, simply hold the **BOOT button (GPIO 9) for 3 seconds** to re-open the setup portal without plugging into a computer!
 
 ---
 
@@ -29,88 +59,50 @@ Both sketches enforce two hardware-level protections:
 
 Each sketch is structured into modular sections with production-grade embedded safeguards:
 
-* **Zero-Heap Telemetry**: Uses static fixed buffers (`char wifiSsid[33]`, `char timestamp[25]`) instead of heap-allocated `String` objects, preventing memory fragmentation over weeks of continuous operation.
+* **Zero-Heap Telemetry**: Uses static fixed buffers (`char wifiSsid[33]`, `char timestamp[25]`) instead of heap-allocated `String` objects in the hot telemetry loop, preventing memory fragmentation over weeks of continuous operation.
+* **Onboard Captive Portal & DNS**: Built-in `<WebServer.h>`, `<DNSServer.h>`, and `<Preferences.h>` provide zero-dependency dynamic hotspot setup.
 * **Pure Math Rounding**: Uses `roundToDp(float, int)` to output clean numbers into JSON without string conversions.
-* **TLS / HTTPS Security**: Uses `WiFiClientSecure` with `.setInsecure()` to communicate over HTTPS with Render without requiring large root CA certificate bundles in flash memory.
+* **Dual HTTP / HTTPS Support**: Automatically uses `WiFiClientSecure` for HTTPS (with `.setInsecure()` to avoid heavy CA bundles) or standard `WiFiClient` for local HTTP development servers.
 * **Non-Blocking Scheduler**: `loop()` operates via drift-free `millis()` interval timing, allowing FreeRTOS background tasks and Wi-Fi keep-alives to process without blocking.
 * **Epoch Sanity Guard**: Verifies NTP clock sync against a timestamp threshold (`MIN_VALID_EPOCH = 1700000000`) before emitting the ISO-8601 UTC timestamp. If not synced yet, the timestamp is omitted and the backend server timestamps the record upon reception.
 * **USB-CDC Handshake**: Built-in 3-second handshake so opening the Serial Monitor immediately displays the boot diagnostics.
 
 ---
 
-## ⚙️ User Configuration Reference (Section 1)
+## ⚙️ Configuration Reference & NVS Keys
 
-All values an operator or editor would ever need to change are isolated in **Section 1** of each sketch. No other section needs to be touched for standard deployment.
+When booted, the firmware reads its configuration from the `"greennode"` NVS namespace:
 
-### 1A — Network & Backend
-| Constant | Default | Description |
-|---|---|---|
-| `WIFI_SSID` | `"test"` | Wi-Fi network name |
-| `WIFI_PASSWORD` | `"malith12"` | Wi-Fi password |
-| `BACKEND_BASE` | `"https://blue-circle.onrender.com"` | Production Render HTTPS Host |
-| `DEVICE_ID` | `"a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"` | Registered Device UUID (Generated from Web Dashboard) |
+| Preference Key | Type | Description | Default Fallback |
+|---|---|---|---|
+| `ssid` | String | Wi-Fi network name | Compile-time fallback |
+| `pass` | String | Wi-Fi network password | Compile-time fallback |
+| `dev_id` | String | Sensor Module UUID | Compile-time fallback |
+| `backend` | String | Backend host URL | `https://blue-circle.onrender.com` |
 
 > [!NOTE]
 > **Dedicated Device Endpoint**: The ESP dynamically constructs its dedicated REST route:
-> `POST https://blue-circle.onrender.com/api/devices/<DEVICE_ID>/readings`
-> This keeps the JSON payload lean (no deviceId required in body) and isolates telemetry per device.
+> `POST <backend>/api/devices/<DEVICE_ID>/readings`
+> This keeps the JSON payload lean (no deviceId required in body) and guarantees isolated telemetry per device.
 
 > [!IMPORTANT]
-> **Mandatory Pre-Registration Requirement**: The cloud backend rejects any sensor transmission whose `DEVICE_ID` has not been pre-registered on the Web Dashboard with a 403 Forbidden response. Before flashing:
-> 1. Open the Green Node Dashboard.
-> 2. Select the target **Company** and **Greenhouse**.
-> 3. Click **"Register Sensor Module"** to generate the unique UUID.
-> 4. Copy the generated UUID and paste it into `const char* DEVICE_ID = "...";` in Section 1.
-
-### 1B — Timing & Telemetry Intervals
-| Constant | Default | Description |
-|---|---|---|
-| `REFRESH_INTERVAL_MS` | `10000` | Telemetry transmission interval (10 seconds) |
-| `WIFI_TIMEOUT_MS` | `15000` | Max wait for Wi-Fi association (15 seconds) |
-| `HTTP_TIMEOUT_MS` | `12000` | HTTPS request timeout (allows for TLS handshake + Render routing) |
-
-### 1C — NTP Time Service (Sri Lanka Standard Time)
-| Constant | Default | Description |
-|---|---|---|
-| `NTP_SERVER_PRIMARY` | `"pool.ntp.org"` | Primary NTP server |
-| `NTP_SERVER_FALLBACK` | `"time.google.com"` | Secondary NTP server |
-| `GMT_OFFSET_SEC` | `19800` | UTC+5:30 (`5.5 × 3600 = 19800` seconds) |
-| `DAYLIGHT_OFFSET_SEC` | `0` | Sri Lanka has no Daylight Saving Time |
-
-### 1D — Soil Sensor Timing & ADC Calibration
-*(Constants differ between FC-28 and MD0869 editions.)*
-
-| Constant | FC-28 Edition | MD0869 Edition | Description |
-|---|---|---|---|
-| `SETTLE_MS` | `20` | `80` | ms after probe power-on before ADC sampling |
-| `RESET_MS` | `40` | `120` | ms after probe power-off for probe discharge |
-| `DRY_ADC` | `400` | `400` | Raw ADC at 0 % moisture |
-| `WET_ADC` | `4095` | `4058` | Raw ADC at 100 % moisture |
-| `ADC_SAMPLE_COUNT` | `16` | `16` | Oversampling count per read cycle |
-
-> **Linear Calibration Constants ($y = ax + b$)**:
-> ```cpp
-> const float FC28_CAL_A = 0.0f;  // Slope 'a' — set from calibration run
-> const float FC28_CAL_B = 0.0f;  // Intercept 'b' — set from calibration run
-> ```
-> Default initial values are `0.0f` (uncalibrated: passes through raw ADC directly). Update with your derived linear coefficients when ready.
+> **Mandatory Pre-Registration Gatekeeper**: The cloud backend rejects any sensor transmission whose `DEVICE_ID` has not been pre-registered on the Web Dashboard with a `403 Forbidden` response. Always register the Sensor Module in the Dashboard before provisioning the ESP.
 
 ---
 
 ## 📡 JSON Telemetry Payload
 
-Sent via `POST https://blue-circle.onrender.com/api/readings`:
+Sent via `POST /api/devices/:deviceId/readings`:
 
 ```json
 {
-  "deviceId": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
   "temperature": 24.50,
   "humidity": 62.30,
   "soilMoisture": 48.7,
   "light": 420.5,
   "espTemperature": 39.25,
   "wifiSsid": "Greenhouse_IoT_2.4G",
-  "timestamp": "2026-11-02T01:50:43Z",
+  "timestamp": "2026-11-03T01:50:43Z",
   "metadata": {
     "chip": "esp32-c3-supermini",
     "rssi": -62,
@@ -129,7 +121,7 @@ Sent via `POST https://blue-circle.onrender.com/api/readings`:
                    │                       │
             [5V] --│ 5V                 21 │-- GPIO 21
     [Common GND] --│ GND                20 │-- GPIO 20
-      [3.3V Rail]--│ 3V3                 9 │-- GPIO 9 [BOOT button]
+      [3.3V Rail]--│ 3V3                 9 │-- GPIO 9 [BOOT button - Setup Portal]
  MD0869 AO (Ref) --│ GPIO 0              8 │-- GPIO 8 [Onboard Blue LED]
    FC-28 AO (Sec)--│ GPIO 1              7 │-- GPIO 7
 Soil Power-Gate ---│ GPIO 2              6 │-- GPIO 6 ──► BH1750 SCL (I2C Clock)
@@ -149,6 +141,8 @@ Soil Power-Gate ---│ GPIO 2              6 │-- GPIO 6 ──► BH1750 SCL (
 | **BH1750** | SDA | **GPIO 5** | Hardware I2C SDA |
 | **BH1750** | SCL | **GPIO 6** | Hardware I2C SCL |
 | **BH1750** | ADDR | **GND** (or float) | Sets default address `0x23` |
+| **Status LED** | Onboard | **GPIO 8** | Active LOW (blink = portal, pulse = reading) |
+| **BOOT Button** | Onboard | **GPIO 9** | Active LOW (hold 3s to trigger Captive Portal) |
 | **Power** | VCC | **3V3** | Shared 3.3V rail |
 | **Ground** | GND | **GND** | Shared common ground rail |
 
@@ -161,7 +155,8 @@ Install via Arduino IDE Library Manager (`Ctrl+Shift+I`):
 2. **`DHT sensor library`** by *Adafruit*
 3. **`Adafruit Unified Sensor`** by *Adafruit*
 4. **`BH1750`** by *Christopher Laws*
-*(WiFi, WiFiClientSecure, HTTPClient, Wire, and time are built into the ESP32 Core).*
+
+*(WiFi, WiFiClientSecure, WebServer, DNSServer, Preferences, Wire, and time are built into the official ESP32 Arduino Core).*
 
 ---
 
@@ -173,4 +168,5 @@ Install via Arduino IDE Library Manager (`Ctrl+Shift+I`):
 | **USB CDC On Boot** | `Enabled` ⚠️ *(Crucial for Serial Monitor)* |
 | **CPU Frequency** | `160 MHz (WiFi)` |
 | **Flash Size** | `4MB (32Mb)` |
+| **Partition Scheme** | `Default 4MB with spiffs` |
 | **Baud Rate** | `115200` |

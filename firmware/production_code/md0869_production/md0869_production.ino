@@ -2,14 +2,18 @@
 // 🌿 GREEN NODE - PRODUCTION FIRMWARE (MD0869 SOIL SENSOR EDITION)
 // Microcontroller : ESP32-C3 SuperMini (RISC-V)
 // Sensors         : MD0869 Soil Moisture, DHT22 (Temp & Hum), BH1750 (Lux)
-// Connectivity    : 2.4GHz Wi-Fi (Built-in) + TLS/HTTPS Client
+// Connectivity    : 2.4GHz Wi-Fi + Dynamic Captive Portal Provisioning
 // Time Source     : Sri Lanka Standard Time (UTC+5:30) via NTP
-// Backend Target  : HTTPS POST /api/readings
+// Backend Target  : HTTP/HTTPS POST /api/devices/:deviceId/readings
 // ============================================================================
 
 #include <WiFi.h>
+#include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
+#include <WebServer.h>
+#include <DNSServer.h>
+#include <Preferences.h>
 #include <ArduinoJson.h>
 #include <Wire.h>
 #include "DHT.h"
@@ -18,19 +22,38 @@
 #include <math.h>
 
 // ============================================================================
-// 1. USER CONFIGURATION & CONSTANTS
+// 1. USER CONFIGURATION & COMPILE-TIME FALLBACK DEFAULTS
 // ============================================================================
+// 💡 NOTE: You NO LONGER need to reflash to change Wi-Fi, UUID, or Backend!
+// The node automatically loads credentials from NVS flash memory.
+// If not configured, or if the BOOT button (GPIO 9) is held for 3s,
+// the node launches a Wi-Fi Captive Portal named "GreenNode-Setup".
 
-// --- Network & Backend Configuration ---
-const char* WIFI_SSID                               = "Malith's A55";                                           // Wi-Fi Network Name
-const char* WIFI_PASSWORD                           = "malith26";                                               // Wi-Fi Password
-const char* BACKEND_BASE                            = "https://blue-circle.onrender.com";                       // Target base host (HTTPS)
-const char* DEVICE_ID                               = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";                   // Registered Device UUID
+// --- Fallback Defaults (Used only on fresh chip before first Web Portal setup) ---
+const char* DEFAULT_WIFI_SSID                       = "Malith's A55";
+const char* DEFAULT_WIFI_PASSWORD                   = "malith26";
+const char* DEFAULT_BACKEND_BASE                    = "https://blue-circle.onrender.com";
+const char* DEFAULT_DEVICE_ID                       = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
+
+// --- Active Runtime Configuration (Populated from NVS Preferences at boot) ---
+char configWifiSsid[64]                             = "";
+char configWifiPassword[64]                         = "";
+char configBackendBase[128]                         = "";
+char configDeviceId[64]                             = "";
+
+// --- Hardware Pin Assignments (ESP32-C3 SuperMini) ---
+const int PIN_SOIL_MD0869_AO                        = 0;       // GPIO0 (ADC1_CH0) -> MD0869 Reference Analog Output
+const int PIN_SOIL_POWER_GATE                       = 2;       // GPIO2 -> Dedicated VCC Power-Gate
+const int PIN_DHT_DATA                              = 3;       // GPIO3 -> Single-Wire Digital Data
+const int PIN_BH1750_SDA                            = 5;       // GPIO5 -> Hardware I2C SDA
+const int PIN_BH1750_SCL                            = 6;       // GPIO6 -> Hardware I2C SCL
+const int PIN_STATUS_LED                            = 8;       // GPIO8 -> Onboard Blue LED (Active LOW)
+const int PIN_BOOT_BUTTON                           = 9;       // GPIO9 -> Onboard BOOT Button (Active LOW)
 
 // --- Telemetry & Timing Intervals ---
-const unsigned long REFRESH_INTERVAL_MS             = 10000;   // Strict interval between telemetry transmissions (10 sec)
+const unsigned long REFRESH_INTERVAL_MS             = 10000;   // Interval between telemetry transmissions (10 sec)
 const unsigned long WIFI_TIMEOUT_MS                 = 15000;   // Max time to wait for Wi-Fi association (15 sec)
-const unsigned long HTTP_TIMEOUT_MS                 = 12000;   // HTTPS request timeout (12 sec for TLS + Render routing)
+const unsigned long HTTP_TIMEOUT_MS                 = 12000;   // HTTP/HTTPS request timeout (12 sec)
 
 // --- Time Service (Sri Lanka Standard Time: UTC+5:30, No DST) ---
 const char* NTP_SERVER_PRIMARY                      = "pool.ntp.org";
@@ -40,8 +63,6 @@ const int   DAYLIGHT_OFFSET_SEC                     = 0;       // Sri Lanka has 
 const time_t MIN_VALID_EPOCH                        = 1700000000; // Sanity threshold (~Nov 2023) to verify NTP sync
 
 // --- MD0869 Soil Moisture Sensor Hardware & Timing ---
-const int PIN_SOIL_MD0869_AO                        = 0;       // GPIO0 (ADC1_CH0) -> MD0869 Reference Analog Output
-const int PIN_SOIL_POWER_GATE                       = 2;       // GPIO2 -> Dedicated VCC Power-Gate
 const unsigned long MD0869_SETTLE_MS                = 80;      // 80ms RC filter stabilization after power-on
 const unsigned long MD0869_RESET_MS                 = 120;     // 120ms probe discharge after power-off
 const int MD0869_DRY_ADC                            = 400;     // Raw ADC in dry air (0% moisture)
@@ -49,33 +70,29 @@ const int MD0869_WET_ADC                            = 4058;    // Raw ADC in sat
 const int ADC_SAMPLE_COUNT                          = 16;      // Oversampling filter count
 
 // --- Optional Linear Fine-Tuning Calibration (y = ax + b) ---
-// ⚠️ USER CONFIGURATION:
-// Update 'MD0869_CAL_A' and 'MD0869_CAL_B' if fine-tuning against soil samples.
-// Initial default condition is 0.0 (uncalibrated: uses raw factory reference ADC).
 const float MD0869_CAL_A                            = 0.0f;    // Slope 'a'
 const float MD0869_CAL_B                            = 0.0f;    // Offset 'b'
 
-// --- DHT22 Environmental Sensor ---
-const int PIN_DHT_DATA                              = 3;       // GPIO3 -> Single-Wire Digital Data
-#define DHTTYPE DHT22
-
-// --- BH1750 Ambient Light Sensor ---
-const int PIN_BH1750_SDA                            = 5;       // GPIO5 -> Hardware I2C SDA
-const int PIN_BH1750_SCL                            = 6;       // GPIO6 -> Hardware I2C SCL
-
-// --- Onboard Status Indicator ---
-const int PIN_STATUS_LED                            = 8;       // GPIO8 -> Onboard Blue LED (Active LOW)
+// --- Captive Portal Settings ---
+const char* AP_SSID                                 = "GreenNode-Setup";
+const byte  DNS_PORT                                = 53;
+const char* NVS_NAMESPACE                           = "greennode";
 
 // ============================================================================
 // 2. HARDWARE INSTANCES & DATA STRUCTURES
 // ============================================================================
 
+#define DHTTYPE DHT22
 DHT dht(PIN_DHT_DATA, DHTTYPE);
 BH1750 lightMeter;
+
+WebServer portalServer(80);
+DNSServer dnsServer;
 
 // Global state tracking
 bool bh1750Initialized = false;
 unsigned long lastTelemetryMillis = 0;
+int failedWifiAttempts = 0;
 
 struct SensorTelemetry {
     int   soilRaw;
@@ -93,7 +110,294 @@ struct SensorTelemetry {
 };
 
 // ============================================================================
-// 3. UTILITY & HARDWARE HELPER FUNCTIONS
+// 3. NVS PREFERENCES & CONFIGURATION MANAGEMENT
+// ============================================================================
+
+void loadConfiguration() {
+    Preferences prefs;
+    prefs.begin(NVS_NAMESPACE, true); // Read-only
+
+    String sSsid    = prefs.getString("ssid", DEFAULT_WIFI_SSID);
+    String sPass    = prefs.getString("pass", DEFAULT_WIFI_PASSWORD);
+    String sBackend = prefs.getString("backend", DEFAULT_BACKEND_BASE);
+    String sDevId   = prefs.getString("dev_id", DEFAULT_DEVICE_ID);
+    prefs.end();
+
+    strncpy(configWifiSsid,     sSsid.c_str(),    sizeof(configWifiSsid) - 1);
+    strncpy(configWifiPassword, sPass.c_str(),    sizeof(configWifiPassword) - 1);
+    strncpy(configBackendBase,  sBackend.c_str(), sizeof(configBackendBase) - 1);
+    strncpy(configDeviceId,     sDevId.c_str(),   sizeof(configDeviceId) - 1);
+
+    configWifiSsid[sizeof(configWifiSsid) - 1]         = '\0';
+    configWifiPassword[sizeof(configWifiPassword) - 1] = '\0';
+    configBackendBase[sizeof(configBackendBase) - 1]   = '\0';
+    configDeviceId[sizeof(configDeviceId) - 1]         = '\0';
+
+    Serial.println("[NVS] Configuration loaded:");
+    Serial.printf("      Wi-Fi SSID  : %s\n", configWifiSsid);
+    Serial.printf("      Device UUID : %s\n", configDeviceId);
+    Serial.printf("      Backend Host: %s\n", configBackendBase);
+}
+
+void saveConfiguration(const char* ssid, const char* pass, const char* backend, const char* devId) {
+    Preferences prefs;
+    prefs.begin(NVS_NAMESPACE, false); // Read-write
+    prefs.putString("ssid", ssid);
+    prefs.putString("pass", pass);
+    prefs.putString("backend", backend);
+    prefs.putString("dev_id", devId);
+    prefs.end();
+    Serial.println("[NVS] ✅ New configuration saved to flash memory.");
+}
+
+// ============================================================================
+// 4. CAPTIVE PORTAL PROVISIONING SERVICE (SoftAP + Web UI)
+// ============================================================================
+
+void handlePortalNotFound() {
+    // Redirect all captive portal detection queries (Apple, Android, Windows) to root
+    portalServer.sendHeader("Location", "http://192.168.4.1/", true);
+    portalServer.send(302, "text/plain", "");
+}
+
+void handlePortalRoot() {
+    // Scan networks nearby to populate the dropdown
+    int n = WiFi.scanNetworks();
+
+    String html = R"html(<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Green Node Provisioning</title>
+<style>
+* { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+body { background: #0f172a; color: #f8fafc; margin: 0; padding: 20px 12px; display: flex; justify-content: center; }
+.card { background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 24px; max-width: 440px; width: 100%; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); }
+.header { text-align: center; margin-bottom: 20px; }
+.logo { font-size: 34px; margin-bottom: 6px; }
+h1 { margin: 0; font-size: 22px; color: #10b981; font-weight: 700; }
+p.sub { margin: 6px 0 0; font-size: 13px; color: #94a3b8; }
+.badge { display: inline-block; background: #064e3b; color: #34d399; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 9999px; margin-top: 8px; }
+.form-group { margin-bottom: 16px; }
+label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #e2e8f0; }
+select, input[type="text"], input[type="password"] {
+  width: 100%; padding: 11px 12px; border-radius: 8px; border: 1px solid #475569;
+  background: #0f172a; color: #fff; font-size: 14px; outline: none; transition: border 0.2s;
+}
+select:focus, input:focus { border-color: #10b981; }
+.hint { font-size: 11px; color: #94a3b8; margin-top: 4px; line-height: 1.4; }
+.hint code { background: #0f172a; padding: 2px 4px; border-radius: 4px; color: #38bdf8; }
+.btn {
+  display: block; width: 100%; padding: 12px; border: none; border-radius: 8px;
+  background: #10b981; color: #022c22; font-size: 15px; font-weight: 700;
+  cursor: pointer; transition: background 0.2s; margin-top: 20px;
+}
+.btn:hover { background: #059669; }
+.pw-wrap { position: relative; }
+.pw-toggle {
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  background: transparent; border: none; color: #94a3b8; font-size: 12px; cursor: pointer; padding: 4px;
+}
+.footer { text-align: center; margin-top: 20px; font-size: 11px; color: #64748b; line-height: 1.5; }
+</style>
+<script>
+function onSelectNet(val) {
+  if (val) {
+    document.getElementById('ssid').value = val;
+  }
+}
+function togglePw() {
+  var p = document.getElementById('pass');
+  var b = document.getElementById('pwBtn');
+  if (p.type === 'password') {
+    p.type = 'text';
+    b.textContent = 'Hide';
+  } else {
+    p.type = 'password';
+    b.textContent = 'Show';
+  }
+}
+</script>
+</head>
+<body>
+<div class="card">
+  <div class="header">
+    <div class="logo">🌿</div>
+    <h1>Green Node Setup</h1>
+    <p class="sub">Sensor Module Wi-Fi &amp; UUID Provisioning</p>
+    <div class="badge">MD0869 EDITION</div>
+  </div>
+
+  <form method="POST" action="/save">
+    <div class="form-group">
+      <label for="scannedNet">Detected Wi-Fi Networks</label>
+      <select id="scannedNet" onchange="onSelectNet(this.value)">
+        <option value="">-- Select a nearby Wi-Fi network --</option>
+)html";
+
+    for (int i = 0; i < n; i++) {
+        String ssidName = WiFi.SSID(i);
+        if (ssidName.length() > 0) {
+            int rssi = WiFi.RSSI(i);
+            html += "<option value=\"" + ssidName + "\">" + ssidName + " (" + String(rssi) + " dBm)</option>\n";
+        }
+    }
+
+    html += R"html(
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="ssid">Wi-Fi Network Name (SSID) *</label>
+      <input type="text" id="ssid" name="ssid" value=")html" + String(configWifiSsid) + R"html(" required placeholder="e.g. Greenhouse_WiFi">
+    </div>
+
+    <div class="form-group">
+      <label for="pass">Wi-Fi Password</label>
+      <div class="pw-wrap">
+        <input type="password" id="pass" name="password" value=")html" + String(configWifiPassword) + R"html(" placeholder="Network Password">
+        <button type="button" id="pwBtn" class="pw-toggle" onclick="togglePw()">Show</button>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label for="device_id">Sensor Module Device UUID *</label>
+      <input type="text" id="device_id" name="device_id" value=")html" + String(configDeviceId) + R"html(" required placeholder="e.g. a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11">
+      <div class="hint">⚠️ Registered from Green Node Web Dashboard under your Greenhouse. Unregistered UUIDs receive <code>403 Forbidden</code>.</div>
+    </div>
+
+    <div class="form-group">
+      <label for="backend">Backend Server URL *</label>
+      <input type="text" id="backend" name="backend" value=")html" + String(configBackendBase) + R"html(" required placeholder="https://blue-circle.onrender.com">
+      <div class="hint">Production: <code>https://blue-circle.onrender.com</code> &bull; Local test: <code>http://192.168.x.x:4000</code></div>
+    </div>
+
+    <button type="submit" class="btn">💾 Save &amp; Connect</button>
+  </form>
+
+  <div class="footer">
+    ESP32-C3 SuperMini Node &bull; Sri Lanka Time (UTC+5:30)<br>
+    To reconfigure later: hold the onboard BOOT button (GPIO 9) for 3 seconds.
+  </div>
+</div>
+</body>
+</html>)html";
+
+    portalServer.send(200, "text/html", html);
+}
+
+void handlePortalSave() {
+    String newSsid    = portalServer.arg("ssid");
+    String newPass    = portalServer.arg("password");
+    String newDevId   = portalServer.arg("device_id");
+    String newBackend = portalServer.arg("backend");
+
+    newSsid.trim();
+    newPass.trim();
+    newDevId.trim();
+    newBackend.trim();
+
+    if (newSsid.length() == 0 || newDevId.length() == 0) {
+        portalServer.send(400, "text/html", "<h3>Error: Wi-Fi SSID and Device UUID are mandatory.</h3><p><a href='/'>Go back</a></p>");
+        return;
+    }
+
+    if (newBackend.length() == 0) {
+        newBackend = "https://blue-circle.onrender.com";
+    }
+    while (newBackend.endsWith("/")) {
+        newBackend.remove(newBackend.length() - 1);
+    }
+
+    saveConfiguration(newSsid.c_str(), newPass.c_str(), newBackend.c_str(), newDevId.c_str());
+
+    String responseHtml = R"html(<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings Saved - Green Node</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
+.card { background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 32px; max-width: 420px; width: 100%; text-align: center; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); }
+.badge { background: #064e3b; color: #34d399; padding: 6px 14px; border-radius: 9999px; font-weight: 600; font-size: 13px; display: inline-block; margin-bottom: 16px; }
+h2 { margin: 0 0 12px; color: #fff; font-size: 22px; }
+p { color: #94a3b8; font-size: 14px; line-height: 1.5; margin: 8px 0; }
+.mono { font-family: monospace; background: #0f172a; padding: 4px 8px; border-radius: 6px; color: #38bdf8; word-break: break-all; }
+.spinner { width: 36px; height: 36px; border: 3px solid #334155; border-top-color: #10b981; border-radius: 50%; animation: spin 1s linear infinite; margin: 24px auto 8px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="badge">✅ SAVED TO FLASH</div>
+  <h2>Rebooting Node</h2>
+  <p>Connecting to Wi-Fi:<br><strong style="color:#fff;">)html" + newSsid + R"html(</strong></p>
+  <p>Sensor Module UUID:<br><span class="mono">)html" + newDevId + R"html(</span></p>
+  <div class="spinner"></div>
+  <p style="font-size:12px; color:#64748b; margin-top:16px;">The ESP32 is rebooting in 2 seconds and will start streaming telemetry.</p>
+</div>
+</body>
+</html>)html";
+
+    portalServer.send(200, "text/html", responseHtml);
+    delay(2000);
+    ESP.restart();
+}
+
+void startCaptivePortal() {
+    Serial.println("\n======================================================================");
+    Serial.println("     🌿 GREEN NODE — ONBOARD PROVISIONING PORTAL ACTIVATED            ");
+    Serial.println("======================================================================");
+    Serial.println("1. Connect your phone / laptop to Wi-Fi: \"GreenNode-Setup\" (Open AP)");
+    Serial.println("2. The setup page will open automatically (or navigate to http://192.168.4.1)");
+    Serial.println("3. Enter Wi-Fi credentials, paste registered UUID, and click Save.");
+    Serial.println("======================================================================\n");
+
+    WiFi.disconnect(true);
+    delay(100);
+    WiFi.mode(WIFI_AP);
+    IPAddress apIP(192, 168, 4, 1);
+    WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
+    WiFi.softAP(AP_SSID);
+
+    // DNS server intercepts all requests and redirects to ESP32 local IP
+    dnsServer.start(DNS_PORT, "*", apIP);
+
+    // Setup HTTP endpoints
+    portalServer.on("/", HTTP_GET, handlePortalRoot);
+    portalServer.on("/save", HTTP_POST, handlePortalSave);
+    // Common captive portal probe paths for Android, iOS, Windows:
+    portalServer.on("/generate_204", HTTP_GET, handlePortalRoot);
+    portalServer.on("/hotspot-detect.html", HTTP_GET, handlePortalRoot);
+    portalServer.on("/canonical.html", HTTP_GET, handlePortalRoot);
+    portalServer.on("/connecttest.txt", HTTP_GET, handlePortalRoot);
+    portalServer.on("/ncsi.txt", HTTP_GET, handlePortalRoot);
+    portalServer.onNotFound(handlePortalNotFound);
+
+    portalServer.begin();
+
+    unsigned long lastBlink = 0;
+    bool ledState = false;
+
+    // Loop indefinitely in portal mode until user saves & reboots
+    while (true) {
+        dnsServer.processNextRequest();
+        portalServer.handleClient();
+
+        // Distinct fast blinking LED (150ms) indicates Setup Mode is active
+        if (millis() - lastBlink > 150) {
+            lastBlink = millis();
+            ledState = !ledState;
+            digitalWrite(PIN_STATUS_LED, ledState ? LOW : HIGH);
+        }
+        delay(5);
+    }
+}
+
+// ============================================================================
+// 5. UTILITY & HARDWARE HELPER FUNCTIONS
 // ============================================================================
 
 void pulseStatusLed(int durationMs = 40) {
@@ -110,17 +414,15 @@ const char* classifyLux(float lux) {
     return "Direct Sunlight";
 }
 
-// Rounds a float to N decimal places cleanly for ArduinoJson without String heap allocations
 double roundToDp(float value, int decimals) {
     double factor = pow(10.0, decimals);
     return round((double)value * factor) / factor;
 }
 
 // ============================================================================
-// 4. SENSOR ACQUISITION MODULES
+// 6. SENSOR ACQUISITION MODULES
 // ============================================================================
 
-// Multi-sample ADC averaging with initial transient discard
 int readSoilAdcAveraged(int analogPin) {
     for (int i = 0; i < 4; i++) {
         (void)analogRead(analogPin);
@@ -134,24 +436,21 @@ int readSoilAdcAveraged(int analogPin) {
     return (int)(sum / ADC_SAMPLE_COUNT);
 }
 
-// Applies optional linear calibration y = ax + b
 float calibrateSoilAdc(int rawAdc) {
     if (MD0869_CAL_A == 0.0f && MD0869_CAL_B == 0.0f) {
-        return (float)rawAdc; // Initial condition: return unscaled raw ADC
+        return (float)rawAdc;
     }
     float calibrated = (MD0869_CAL_A * (float)rawAdc) + MD0869_CAL_B;
     return constrain(calibrated, 0.0f, 4095.0f);
 }
 
-// Converts ADC value to moisture percentage
 float calculateMoisturePercent(float adcValue) {
     float span = (float)(MD0869_WET_ADC - MD0869_DRY_ADC);
-    if (fabs(span) < 1e-5f) return 0.0f; // Guard against divide-by-zero
+    if (fabs(span) < 1e-5f) return 0.0f;
     float percent = ((adcValue - (float)MD0869_DRY_ADC) / span) * 100.0f;
     return constrain(percent, 0.0f, 100.0f);
 }
 
-// Reads MD0869 sensor with power gating
 void sampleSoilSensor(SensorTelemetry& data) {
     // 1. Energize probe
     digitalWrite(PIN_SOIL_POWER_GATE, HIGH);
@@ -180,7 +479,6 @@ void sampleEnvironmentalSensor(SensorTelemetry& data) {
 }
 
 void sampleLightSensor(SensorTelemetry& data) {
-    // Auto-recover if BH1750 was disconnected at boot
     if (!bh1750Initialized) {
         bh1750Initialized = lightMeter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE);
     }
@@ -210,21 +508,26 @@ void sampleInternalMetrics(SensorTelemetry& data) {
 }
 
 // ============================================================================
-// 5. WI-FI & TIME SERVICES
+// 7. WI-FI & TIME SERVICES
 // ============================================================================
 
 bool connectToWiFi() {
-    Serial.printf("\n[WiFi] Connecting to \"%s\"", WIFI_SSID);
+    if (strlen(configWifiSsid) == 0) {
+        Serial.println("[WiFi] ⚠️ No Wi-Fi SSID configured. Launching Captive Portal...");
+        startCaptivePortal();
+        return false;
+    }
+
+    Serial.printf("\n[WiFi] Connecting to \"%s\" (Device UUID: %s)...\n", configWifiSsid, configDeviceId);
 
     WiFi.disconnect(true);
     delay(200);
     WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(true);
-    WiFi.persistent(false); // Prevent unnecessary flash wear on every boot
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    WiFi.persistent(false);
+    WiFi.begin(configWifiSsid, configWifiPassword);
 
-    // Cap RF TX power AFTER WiFi.begin to prevent brownout current spikes on ESP32-C3 SuperMini
-    // Note: If signal drops in weak coverage, increase to WIFI_POWER_15dBm
+    // Cap RF TX power AFTER WiFi.begin to prevent brownout spikes on ESP32-C3 SuperMini
     WiFi.setTxPower(WIFI_POWER_11dBm);
 
     unsigned long start = millis();
@@ -232,16 +535,34 @@ bool connectToWiFi() {
         digitalWrite(PIN_STATUS_LED, !digitalRead(PIN_STATUS_LED));
         delay(300);
         Serial.print(".");
+
+        // Check if user holds BOOT button during Wi-Fi connection attempts
+        if (digitalRead(PIN_BOOT_BUTTON) == LOW) {
+            unsigned long bStart = millis();
+            while (digitalRead(PIN_BOOT_BUTTON) == LOW) {
+                if (millis() - bStart >= 2500) {
+                    Serial.println("\n[SETUP] BOOT button held! Entering Captive Portal...");
+                    startCaptivePortal();
+                }
+                delay(50);
+            }
+        }
     }
 
     if (WiFi.status() == WL_CONNECTED) {
         digitalWrite(PIN_STATUS_LED, HIGH); // OFF when connected
         Serial.printf("\n[WiFi] ✅ Connected! IP: %s | RSSI: %d dBm\n",
                       WiFi.localIP().toString().c_str(), WiFi.RSSI());
+        failedWifiAttempts = 0;
         return true;
     } else {
         digitalWrite(PIN_STATUS_LED, LOW);  // ON if failed
         Serial.println("\n[WiFi] ❌ Connection timed out.");
+        failedWifiAttempts++;
+        if (failedWifiAttempts >= 3) {
+            Serial.println("[WiFi] ⚠️ 3 consecutive connection failures. Launching Provisioning Portal...");
+            startCaptivePortal();
+        }
         return false;
     }
 }
@@ -251,12 +572,11 @@ void initTimeService() {
     configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, NTP_SERVER_PRIMARY, NTP_SERVER_FALLBACK);
 }
 
-// Populates ISO-8601 UTC timestamp directly from system epoch without double-offset drift
 void populateIso8601Timestamp(char* outBuffer, size_t bufferSize) {
     time_t now;
-    time(&now); // Always returns true UTC epoch regardless of GMT_OFFSET_SEC
+    time(&now);
     if (now < MIN_VALID_EPOCH) {
-        outBuffer[0] = '\0'; // Not synced yet; backend will fallback to server reception time
+        outBuffer[0] = '\0';
         return;
     }
     struct tm utcTm;
@@ -265,7 +585,7 @@ void populateIso8601Timestamp(char* outBuffer, size_t bufferSize) {
 }
 
 // ============================================================================
-// 6. HTTP TELEMETRY DISPATCH (TLS/HTTPS READY TO DEDICATED DEVICE ENDPOINT)
+// 8. HTTP TELEMETRY DISPATCH (TARGET: /api/devices/:deviceId/readings)
 // ============================================================================
 
 void sendTelemetryHttp(const SensorTelemetry& data) {
@@ -274,9 +594,9 @@ void sendTelemetryHttp(const SensorTelemetry& data) {
         return;
     }
 
-    // Target dedicated device endpoint: /api/devices/<DEVICE_ID>/readings
-    char targetUrl[160];
-    snprintf(targetUrl, sizeof(targetUrl), "%s/api/devices/%s/readings", BACKEND_BASE, DEVICE_ID);
+    // Target dedicated device endpoint: /api/devices/<configDeviceId>/readings
+    char targetUrl[220];
+    snprintf(targetUrl, sizeof(targetUrl), "%s/api/devices/%s/readings", configBackendBase, configDeviceId);
 
 #if ARDUINOJSON_VERSION_MAJOR >= 7
     JsonDocument doc;
@@ -308,29 +628,40 @@ void sendTelemetryHttp(const SensorTelemetry& data) {
     char jsonPayload[384];
     size_t payloadLen = serializeJson(doc, jsonPayload, sizeof(jsonPayload));
 
-    // Use WiFiClientSecure for Render https:// endpoint
-    WiFiClientSecure client;
-    client.setInsecure(); // Skip CA cert bundle verification to save flash/RAM on C3
-    client.setTimeout(HTTP_TIMEOUT_MS / 1000);
-
+    bool isHttps = (strncmp(configBackendBase, "https://", 8) == 0);
     HTTPClient http;
     http.setReuse(false);
-    if (!http.begin(client, targetUrl)) {
-        Serial.println("[HTTP] ❌ Unable to initialize HTTPS client.");
-        return;
-    }
-
-    http.addHeader("Content-Type", "application/json");
     http.setTimeout(HTTP_TIMEOUT_MS);
 
-    int httpCode = http.POST((uint8_t*)jsonPayload, payloadLen);
+    int httpCode = 0;
+    if (isHttps) {
+        WiFiClientSecure client;
+        client.setInsecure(); // Skip certificate bundle to save flash & RAM
+        client.setTimeout(HTTP_TIMEOUT_MS / 1000);
+        if (!http.begin(client, targetUrl)) {
+            Serial.println("[HTTP] ❌ Unable to initialize HTTPS client.");
+            return;
+        }
+        http.addHeader("Content-Type", "application/json");
+        httpCode = http.POST((uint8_t*)jsonPayload, payloadLen);
+    } else {
+        WiFiClient client;
+        client.setTimeout(HTTP_TIMEOUT_MS / 1000);
+        if (!http.begin(client, targetUrl)) {
+            Serial.println("[HTTP] ❌ Unable to initialize HTTP client.");
+            return;
+        }
+        http.addHeader("Content-Type", "application/json");
+        httpCode = http.POST((uint8_t*)jsonPayload, payloadLen);
+    }
+
     if (httpCode == 201) {
         Serial.printf("[HTTP] ✅ INGESTED (HTTP 201) | Payload: %u bytes\n", (unsigned int)payloadLen);
         pulseStatusLed(40);
     } else if (httpCode == 403) {
         String resp = http.getString();
         Serial.println("\n[HTTP] 🛑 403 FORBIDDEN - REJECTED BY BACKEND GATEKEEPER!");
-        Serial.printf("       DEVICE_ID \"%s\" is not registered in Web Dashboard.\n", DEVICE_ID);
+        Serial.printf("       DEVICE_ID \"%s\" is not registered in Web Dashboard.\n", configDeviceId);
         Serial.printf("       Server response: %s\n\n", resp.c_str());
         for (int i = 0; i < 3; i++) {
             digitalWrite(PIN_STATUS_LED, LOW); delay(70);
@@ -345,7 +676,7 @@ void sendTelemetryHttp(const SensorTelemetry& data) {
 }
 
 // ============================================================================
-// 7. SYSTEM INITIALIZATION (setup)
+// 9. SYSTEM INITIALIZATION (setup)
 // ============================================================================
 
 void setup() {
@@ -360,15 +691,16 @@ void setup() {
         delay(10);
     }
 
-    // Initialize Onboard Status LED
+    // Initialize Onboard Status LED & BOOT Button
     pinMode(PIN_STATUS_LED, OUTPUT);
     digitalWrite(PIN_STATUS_LED, HIGH); // OFF initially
+    pinMode(PIN_BOOT_BUTTON, INPUT_PULLUP);
 
     // Initialize Soil Power-Gate (De-energized at boot)
     digitalWrite(PIN_SOIL_POWER_GATE, LOW);
     pinMode(PIN_SOIL_POWER_GATE, OUTPUT);
 
-    // Configure 12-bit ADC (0 - 4095) with 11dB attenuation & pin attenuation
+    // Configure 12-bit ADC (0 - 4095) with 11dB attenuation
     analogReadResolution(12);
     analogSetAttenuation(ADC_11db);
     analogSetPinAttenuation(PIN_SOIL_MD0869_AO, ADC_11db);
@@ -381,7 +713,7 @@ void setup() {
     bh1750Initialized = lightMeter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE);
 
     Serial.println("\n======================================================================");
-    Serial.println("     🌿 GREEN NODE PRODUCTION FIRMWARE - MD0869 SOIL EDITION           ");
+    Serial.println("     🌿 GREEN NODE PRODUCTION FIRMWARE - MD0869 SOIL EDITION          ");
     Serial.println("======================================================================");
     Serial.println("HARDWARE PIN ASSIGNMENTS:");
     Serial.println("  • MD0869 Soil Moisture (AO)  : GPIO 0 (ADC1_CH0 - Safe with WiFi)");
@@ -390,14 +722,41 @@ void setup() {
     Serial.println("  • BH1750 Ambient Light (SDA) : GPIO 5 (I2C SDA)");
     Serial.println("  • BH1750 Ambient Light (SCL) : GPIO 6 (I2C SCL)");
     Serial.println("  • Onboard Status Indicator   : GPIO 8 (Active LOW)");
+    Serial.println("  • Onboard BOOT Button        : GPIO 9 (Hold 3s to trigger Setup Portal)");
     Serial.println("----------------------------------------------------------------------");
     Serial.print("BH1750 Sensor Status         : ");
     Serial.println(bh1750Initialized ? "✅ ONLINE (Address 0x23)" : "❌ OFFLINE (Check wiring)");
-    Serial.printf("Calibrated Range (ADC)       : Dry = %d | Wet = %d\n", MD0869_DRY_ADC, MD0869_WET_ADC);
-    Serial.printf("Telemetry Interval           : %lu ms\n", REFRESH_INTERVAL_MS);
-    Serial.printf("Backend Host                 : %s\n", BACKEND_BASE);
-    Serial.printf("Device Target Route          : /api/devices/%s/readings\n", DEVICE_ID);
+    Serial.printf("Linear Calibration           : a = %.4f, b = %.4f %s\n",
+                  MD0869_CAL_A, MD0869_CAL_B,
+                  (MD0869_CAL_A == 0.0f && MD0869_CAL_B == 0.0f) ? "(Uncalibrated - Factory pass-through)" : "(Active)");
     Serial.println("======================================================================\n");
+
+    // Check if BOOT button is held at boot to force Captive Portal
+    if (digitalRead(PIN_BOOT_BUTTON) == LOW) {
+        Serial.println("[SETUP] BOOT button held at startup! Hold for 3s to enter Setup Portal...");
+        unsigned long startPress = millis();
+        bool forcePortal = false;
+        while (digitalRead(PIN_BOOT_BUTTON) == LOW) {
+            digitalWrite(PIN_STATUS_LED, LOW); delay(50);
+            digitalWrite(PIN_STATUS_LED, HIGH); delay(50);
+            if (millis() - startPress >= 3000) {
+                forcePortal = true;
+                break;
+            }
+        }
+        if (forcePortal) {
+            startCaptivePortal();
+        }
+    }
+
+    // Load active configuration from NVS flash memory
+    loadConfiguration();
+
+    // If no UUID or SSID is configured, automatically open Captive Portal
+    if (strlen(configWifiSsid) == 0 || strlen(configDeviceId) == 0) {
+        Serial.println("[SETUP] Node is unconfigured! Launching Captive Portal...");
+        startCaptivePortal();
+    }
 
     // Connect to Wi-Fi
     connectToWiFi();
@@ -410,11 +769,29 @@ void setup() {
 }
 
 // ============================================================================
-// 8. MAIN EXECUTION LOOP
+// 10. MAIN EXECUTION LOOP
 // ============================================================================
 
 void loop() {
     unsigned long currentMillis = millis();
+
+    // Monitor BOOT button during normal runtime: holding for 3s opens setup portal
+    if (digitalRead(PIN_BOOT_BUTTON) == LOW) {
+        unsigned long pressStart = millis();
+        bool triggered = false;
+        while (digitalRead(PIN_BOOT_BUTTON) == LOW) {
+            digitalWrite(PIN_STATUS_LED, LOW); delay(50);
+            digitalWrite(PIN_STATUS_LED, HIGH); delay(50);
+            if (millis() - pressStart >= 3000) {
+                triggered = true;
+                break;
+            }
+        }
+        if (triggered) {
+            Serial.println("[RUNTIME] BOOT button held for 3s! Opening Provisioning Portal...");
+            startCaptivePortal();
+        }
+    }
 
     // Non-blocking drift-free interval scheduler
     if (currentMillis - lastTelemetryMillis >= REFRESH_INTERVAL_MS) {
@@ -439,9 +816,9 @@ void loop() {
         // 4. Formatted Terminal Dashboard
         Serial.println("┌─────────────────────────── TELEMETRY REPORT ───────────────────────────┐");
         Serial.printf("│ 🕐 Timestamp (UTC ISO)     : %-42s│\n",
-                      data.timestamp[0] != '\0' ? data.timestamp : "(Syncing with NTP...)");
-        Serial.printf("│ 🌱 Soil Moisture (MD0869)  : %5.1f %%  (Raw ADC: %4d / 4095)       │\n",
-                      data.soilMoisture, data.soilRaw);
+                  data.timestamp[0] != '\0' ? data.timestamp : "(Syncing with NTP...)");
+        Serial.printf("│ 🌾 Soil Moisture (MD0869)  : %5.1f %%  (Raw: %4d | Cal: %6.1f / 4095) │\n",
+                  data.soilMoisture, data.soilRaw, data.soilCalibrated);
         if (data.dhtValid) {
             Serial.printf("│ 🌡️  Temperature            : %5.2f °C                                  │\n", data.temperature);
             Serial.printf("│ 💧 Relative Humidity       : %5.2f %%                                   │\n", data.humidity);
