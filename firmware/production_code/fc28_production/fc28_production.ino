@@ -55,7 +55,7 @@ const int PIN_BOOT_BUTTON                           = 9;       // GPIO9 -> Onboa
 // --- Telemetry & 24/7 Watchdog Timing Intervals ---
 const unsigned long REFRESH_INTERVAL_MS             = 10000;   // Interval between telemetry transmissions (10 sec)
 const unsigned long WIFI_TIMEOUT_MS                 = 15000;   // Max time to wait for Wi-Fi association (15 sec)
-const unsigned long HTTP_TIMEOUT_MS                 = 12000;   // HTTP/HTTPS request timeout (12 sec)
+const unsigned long HTTP_TIMEOUT_MS                 = 15000;   // HTTP/HTTPS request timeout (15 sec)
 const unsigned long PORTAL_TIMEOUT_MS               = 300000;  // 5-min auto-exit timeout for Captive Portal (24/7 safety)
 const uint32_t      WDT_TIMEOUT_SEC                 = 45;      // Hardware Watchdog reset timer (45 sec)
 const uint32_t      MIN_SAFE_FREE_HEAP              = 40960;   // 40 KB minimum heap guard for 24/7 TLS stability
@@ -719,8 +719,26 @@ void sendTelemetryHttp(const SensorTelemetry& data) {
         ESP.restart();
     }
 
-    char targetUrl[220];
-    snprintf(targetUrl, sizeof(targetUrl), "%s/api/devices/%s/readings", configBackendBase, configDeviceId);
+    // 1. Sanitize Backend URL (strip spaces, trailing slashes, ensure protocol)
+    String backendUrl = String(configBackendBase);
+    backendUrl.trim();
+    while (backendUrl.endsWith("/")) {
+        backendUrl.remove(backendUrl.length() - 1);
+    }
+    if (!backendUrl.startsWith("http://") && !backendUrl.startsWith("https://")) {
+        backendUrl = "https://" + backendUrl;
+    }
+
+    // Guard against common localhost mistake
+    if (backendUrl.indexOf("localhost") >= 0 || backendUrl.indexOf("127.0.0.1") >= 0) {
+        Serial.println("[HTTP] ⚠️ WARNING: Backend URL contains 'localhost' or '127.0.0.1'!");
+        Serial.println("       The ESP cannot reach 'localhost' on your computer.");
+        Serial.println("       Use https://blue-circle.onrender.com or your PC's LAN IP (http://192.168.x.x:4000).");
+    }
+
+    char targetUrl[240];
+    snprintf(targetUrl, sizeof(targetUrl), "%s/api/devices/%s/readings", backendUrl.c_str(), configDeviceId);
+    Serial.printf("[HTTP] 📡 Dispatching POST -> %s\n", targetUrl);
 
 #if ARDUINOJSON_VERSION_MAJOR >= 7
     JsonDocument doc;
@@ -751,18 +769,19 @@ void sendTelemetryHttp(const SensorTelemetry& data) {
     char jsonPayload[384];
     size_t payloadLen = serializeJson(doc, jsonPayload, sizeof(jsonPayload));
 
-    bool isHttps = (strncmp(configBackendBase, "https://", 8) == 0);
+    bool isHttps = backendUrl.startsWith("https://");
     HTTPClient http;
     http.setReuse(false);
+    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
     http.setTimeout(HTTP_TIMEOUT_MS);
 
-    static WiFiClientSecure secureClient;
-    static WiFiClient plainClient;
+    WiFiClientSecure secureClient;
+    WiFiClient plainClient;
 
     int httpCode = 0;
     if (isHttps) {
         secureClient.setInsecure();
-        secureClient.setTimeout(HTTP_TIMEOUT_MS / 1000);
+        secureClient.setTimeout(HTTP_TIMEOUT_MS); // Timeout in milliseconds
         if (!http.begin(secureClient, targetUrl)) {
             Serial.println("[HTTP] ❌ Unable to initialize HTTPS client.");
             return;
@@ -770,7 +789,7 @@ void sendTelemetryHttp(const SensorTelemetry& data) {
         http.addHeader("Content-Type", "application/json");
         httpCode = http.POST((uint8_t*)jsonPayload, payloadLen);
     } else {
-        plainClient.setTimeout(HTTP_TIMEOUT_MS / 1000);
+        plainClient.setTimeout(HTTP_TIMEOUT_MS);  // Timeout in milliseconds
         if (!http.begin(plainClient, targetUrl)) {
             Serial.println("[HTTP] ❌ Unable to initialize HTTP client.");
             return;
@@ -796,6 +815,12 @@ void sendTelemetryHttp(const SensorTelemetry& data) {
         Serial.printf("[HTTP] ⚠️ POST returned HTTP %d\n", httpCode);
     } else {
         Serial.printf("[HTTP] ❌ POST Failed (%d): %s\n", httpCode, http.errorToString(httpCode).c_str());
+        if (httpCode == -1) {
+            Serial.println("[HTTP] 💡 Tip: 'connection refused' (-1) means the ESP32 could not connect to the server.");
+            Serial.println("       1. Check if the Wi-Fi network has active Internet access.");
+            Serial.println("       2. Ensure Backend URL is 'https://blue-circle.onrender.com' (not 'localhost').");
+            Serial.println("       3. If Render was sleeping (free tier cold-start), wait 20s for the next ping.");
+        }
     }
     http.end();
 }
