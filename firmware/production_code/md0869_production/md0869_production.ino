@@ -24,7 +24,7 @@
 // --- Network & Backend Configuration ---
 const char* WIFI_SSID                               = "Malith's A55";                                           // Wi-Fi Network Name
 const char* WIFI_PASSWORD                           = "malith26";                                               // Wi-Fi Password
-const char* BACKEND_URL                             = "https://blue-circle.onrender.com/api/readings";             // Target endpoint (HTTPS)
+const char* BACKEND_BASE                            = "https://blue-circle.onrender.com";                       // Target base host (HTTPS)
 const char* DEVICE_ID                               = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";                   // Registered Device UUID
 
 // --- Telemetry & Timing Intervals ---
@@ -265,7 +265,7 @@ void populateIso8601Timestamp(char* outBuffer, size_t bufferSize) {
 }
 
 // ============================================================================
-// 6. HTTP TELEMETRY DISPATCH (TLS/HTTPS READY)
+// 6. HTTP TELEMETRY DISPATCH (TLS/HTTPS READY TO DEDICATED DEVICE ENDPOINT)
 // ============================================================================
 
 void sendTelemetryHttp(const SensorTelemetry& data) {
@@ -274,13 +274,17 @@ void sendTelemetryHttp(const SensorTelemetry& data) {
         return;
     }
 
+    // Target dedicated device endpoint: /api/devices/<DEVICE_ID>/readings
+    char targetUrl[160];
+    snprintf(targetUrl, sizeof(targetUrl), "%s/api/devices/%s/readings", BACKEND_BASE, DEVICE_ID);
+
 #if ARDUINOJSON_VERSION_MAJOR >= 7
     JsonDocument doc;
 #else
     StaticJsonDocument<512> doc;
 #endif
 
-    doc["deviceId"]       = DEVICE_ID;
+    // Lean payload: deviceId is already identified in the URL!
     doc["temperature"]    = roundToDp(data.temperature, 2);
     doc["humidity"]       = roundToDp(data.humidity, 2);
     doc["soilMoisture"]   = roundToDp(data.soilMoisture, 1);
@@ -311,7 +315,7 @@ void sendTelemetryHttp(const SensorTelemetry& data) {
 
     HTTPClient http;
     http.setReuse(false);
-    if (!http.begin(client, BACKEND_URL)) {
+    if (!http.begin(client, targetUrl)) {
         Serial.println("[HTTP] ❌ Unable to initialize HTTPS client.");
         return;
     }
@@ -320,8 +324,20 @@ void sendTelemetryHttp(const SensorTelemetry& data) {
     http.setTimeout(HTTP_TIMEOUT_MS);
 
     int httpCode = http.POST((uint8_t*)jsonPayload, payloadLen);
-    if (httpCode > 0) {
-        Serial.printf("[HTTP] ✅ POST %d | Size: %u bytes\n", httpCode, (unsigned int)payloadLen);
+    if (httpCode == 201) {
+        Serial.printf("[HTTP] ✅ INGESTED (HTTP 201) | Payload: %u bytes\n", (unsigned int)payloadLen);
+        pulseStatusLed(40);
+    } else if (httpCode == 403) {
+        String resp = http.getString();
+        Serial.println("\n[HTTP] 🛑 403 FORBIDDEN - REJECTED BY BACKEND GATEKEEPER!");
+        Serial.printf("       DEVICE_ID \"%s\" is not registered in Web Dashboard.\n", DEVICE_ID);
+        Serial.printf("       Server response: %s\n\n", resp.c_str());
+        for (int i = 0; i < 3; i++) {
+            digitalWrite(PIN_STATUS_LED, LOW); delay(70);
+            digitalWrite(PIN_STATUS_LED, HIGH); delay(70);
+        }
+    } else if (httpCode > 0) {
+        Serial.printf("[HTTP] ⚠️ POST returned HTTP %d\n", httpCode);
     } else {
         Serial.printf("[HTTP] ❌ POST Failed (%d): %s\n", httpCode, http.errorToString(httpCode).c_str());
     }
@@ -379,8 +395,8 @@ void setup() {
     Serial.println(bh1750Initialized ? "✅ ONLINE (Address 0x23)" : "❌ OFFLINE (Check wiring)");
     Serial.printf("Calibrated Range (ADC)       : Dry = %d | Wet = %d\n", MD0869_DRY_ADC, MD0869_WET_ADC);
     Serial.printf("Telemetry Interval           : %lu ms\n", REFRESH_INTERVAL_MS);
-    Serial.printf("Backend Endpoint             : %s\n", BACKEND_URL);
-    Serial.printf("Target Device UUID           : %s\n", DEVICE_ID);
+    Serial.printf("Backend Host                 : %s\n", BACKEND_BASE);
+    Serial.printf("Device Target Route          : /api/devices/%s/readings\n", DEVICE_ID);
     Serial.println("======================================================================\n");
 
     // Connect to Wi-Fi

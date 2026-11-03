@@ -47,13 +47,18 @@ All values an operator or editor would ever need to change are isolated in **Sec
 |---|---|---|
 | `WIFI_SSID` | `"test"` | Wi-Fi network name |
 | `WIFI_PASSWORD` | `"malith12"` | Wi-Fi password |
-| `BACKEND_URL` | `"https://blue-circle.onrender.com/api/readings"` | Production Render HTTPS endpoint |
+| `BACKEND_BASE` | `"https://blue-circle.onrender.com"` | Production Render HTTPS Host |
 | `DEVICE_ID` | `"a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"` | Registered Device UUID (Generated from Web Dashboard) |
+
+> [!NOTE]
+> **Dedicated Device Endpoint**: The ESP dynamically constructs its dedicated REST route:
+> `POST https://blue-circle.onrender.com/api/devices/<DEVICE_ID>/readings`
+> This keeps the JSON payload lean (no deviceId required in body) and isolates telemetry per device.
 
 > [!IMPORTANT]
 > **Mandatory Pre-Registration Requirement**: The cloud backend rejects any sensor transmission whose `DEVICE_ID` has not been pre-registered on the Web Dashboard with a 403 Forbidden response. Before flashing:
 > 1. Open the Green Node Dashboard.
-> 2. Select the target **Company Location** and **Greenhouse**.
+> 2. Select the target **Company** and **Greenhouse**.
 > 3. Click **"Register Sensor Module"** to generate the unique UUID.
 > 4. Copy the generated UUID and paste it into `const char* DEVICE_ID = "...";` in Section 1.
 

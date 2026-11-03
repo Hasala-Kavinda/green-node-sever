@@ -218,7 +218,6 @@ async function sendTelemetry(node: NodeSimulation) {
   node.light = Math.round(randomWalk(node.light, 50, 1200, 35));
 
   const payload = {
-    deviceId: node.deviceId,
     temperature: node.temperature,
     humidity: node.humidity,
     soilMoisture: node.soilMoisture,
@@ -228,7 +227,8 @@ async function sendTelemetry(node: NodeSimulation) {
   };
 
   try {
-    const res = await fetch(`${SERVER_BASE_URL}/api/readings`, {
+    // Send to dedicated device endpoint: /api/devices/:deviceId/readings
+    const res = await fetch(`${SERVER_BASE_URL}/api/devices/${node.deviceId}/readings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)

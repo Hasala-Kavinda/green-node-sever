@@ -4,6 +4,9 @@ import { ReadingController } from '../controllers/reading.controller.js';
 const router = Router();
 
 // Sensor readings ingestion (Strict registration gatekeeper)
+// Both dedicated device URL (/api/devices/:deviceId/readings) and legacy (/api/readings) supported
+router.post('/devices/:deviceId/readings', ReadingController.createReading);
+router.post('/readings/:deviceId', ReadingController.createReading);
 router.post('/readings', ReadingController.createReading);
 router.post('/readings/batch', ReadingController.createBatchReadings);
 

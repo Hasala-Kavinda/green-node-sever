@@ -14,12 +14,21 @@ import {
 
 export class ReadingController {
   /**
-   * POST /api/readings
+   * POST /api/devices/:deviceId/readings or POST /api/readings
    * Ingest a single sensor packet from an ESP node (Strict Registration Required)
    */
   static async createReading(req: Request, res: Response): Promise<void> {
     try {
-      const validatedData = createReadingSchema.parse(req.body);
+      const paramDeviceId = req.params.deviceId
+        ? (Array.isArray(req.params.deviceId) ? req.params.deviceId[0] : req.params.deviceId)
+        : undefined;
+
+      const rawPayload = {
+        ...(typeof req.body === 'object' && req.body !== null ? req.body : {}),
+        deviceId: paramDeviceId || req.body?.deviceId
+      };
+
+      const validatedData = createReadingSchema.parse(rawPayload);
       const clientIp = (req.headers['x-forwarded-for'] as string) || req.ip;
       const reading = await ReadingService.saveReading(validatedData, clientIp);
 
