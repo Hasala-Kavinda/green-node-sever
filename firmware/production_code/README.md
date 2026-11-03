@@ -57,14 +57,18 @@ Both sketches enforce two hardware-level protections:
 
 ## 🗂️ Code Architecture & Production Hardening
 
-Each sketch is structured into modular sections with production-grade embedded safeguards:
+Each sketch is structured into modular sections with production-grade embedded safeguards for 24/7 unattended operation:
 
-* **Zero-Heap Telemetry**: Uses static fixed buffers (`char wifiSsid[33]`, `char timestamp[25]`) instead of heap-allocated `String` objects in the hot telemetry loop, preventing memory fragmentation over weeks of continuous operation.
-* **Onboard Captive Portal & DNS**: Built-in `<WebServer.h>`, `<DNSServer.h>`, and `<Preferences.h>` provide zero-dependency dynamic hotspot setup.
+* **Zero-RAM On-Demand Captive Portal**: `WebServer` and `DNSServer` instances are allocated locally on the stack inside `startCaptivePortal()`, and HTML templates are stored in `PROGMEM`. Consumes **0 bytes of SRAM** during normal 24/7 monitoring.
+* **Router Outage Resilience**: Distinguishes between unconfigured chips and existing saved profiles (`hasCustomNvsConfig`). Reboots after 20 retries (~5 mins) to refresh the RF stack without trapping the node in AP mode, and enforces a **5-minute Portal Inactivity Timeout** (`PORTAL_TIMEOUT_MS = 300000`).
+* **Hardware Watchdog Timer (`esp_task_wdt`)**: 45-second hardware watchdog timer guarantees autonomous MCU reboot if any task, sensor driver, or network socket locks up.
+* **Heap Health Guard**: Pre-flight heap check (`MIN_SAFE_FREE_HEAP = 40960`) cleanly restarts the MCU if free contiguous heap ever drops below safe TLS thresholds.
+* **I2C Bus Lockup Protection**: Configures `Wire.setTimeOut(1000)` to prevent infinite bus stalls if sensor wiring suffers physical vibration or interference.
+* **Instantaneous Portal Load (<15ms)**: Scans Wi-Fi networks once in `WIFI_AP_STA` mode before starting SoftAP, caches the `<option>` list, and frees RAM immediately via `WiFi.scanDelete()`.
+* **Zero-Heap Telemetry**: Uses static fixed buffers (`char wifiSsid[33]`, `char timestamp[25]`) instead of heap-allocated `String` objects in the telemetry loop.
 * **Pure Math Rounding**: Uses `roundToDp(float, int)` to output clean numbers into JSON without string conversions.
-* **Dual HTTP / HTTPS Support**: Automatically uses `WiFiClientSecure` for HTTPS (with `.setInsecure()` to avoid heavy CA bundles) or standard `WiFiClient` for local HTTP development servers.
-* **Non-Blocking Scheduler**: `loop()` operates via drift-free `millis()` interval timing, allowing FreeRTOS background tasks and Wi-Fi keep-alives to process without blocking.
-* **Epoch Sanity Guard**: Verifies NTP clock sync against a timestamp threshold (`MIN_VALID_EPOCH = 1700000000`) before emitting the ISO-8601 UTC timestamp. If not synced yet, the timestamp is omitted and the backend server timestamps the record upon reception.
+* **Dual HTTP / HTTPS Support**: Persistent static `WiFiClientSecure` and `WiFiClient` instances avoid repeated mbedTLS heap allocations.
+* **Epoch Sanity Guard**: Verifies NTP clock sync against a timestamp threshold (`MIN_VALID_EPOCH = 1700000000`) before emitting the ISO-8601 UTC timestamp.
 * **USB-CDC Handshake**: Built-in 3-second handshake so opening the Serial Monitor immediately displays the boot diagnostics.
 
 ---

@@ -1,8 +1,8 @@
 // ============================================================================
-// 🌿 GREEN NODE - PRODUCTION FIRMWARE (MD0869 SOIL SENSOR EDITION)
+// 🌿 GREEN NODE - 24/7 PRODUCTION FIRMWARE (MD0869 SOIL SENSOR EDITION)
 // Microcontroller : ESP32-C3 SuperMini (RISC-V)
 // Sensors         : MD0869 Soil Moisture, DHT22 (Temp & Hum), BH1750 (Lux)
-// Connectivity    : 2.4GHz Wi-Fi + Dynamic Captive Portal Provisioning
+// Connectivity    : 2.4GHz Wi-Fi + Zero-RAM On-Demand Captive Portal
 // Time Source     : Sri Lanka Standard Time (UTC+5:30) via NTP
 // Backend Target  : HTTP/HTTPS POST /api/devices/:deviceId/readings
 // ============================================================================
@@ -20,14 +20,14 @@
 #include <BH1750.h>
 #include <time.h>
 #include <math.h>
+#include <esp_task_wdt.h>
 
 // ============================================================================
 // 1. USER CONFIGURATION & COMPILE-TIME FALLBACK DEFAULTS
 // ============================================================================
-// 💡 NOTE: You NO LONGER need to reflash to change Wi-Fi, UUID, or Backend!
-// The node automatically loads credentials from NVS flash memory.
-// If not configured, or if the BOOT button (GPIO 9) is held for 3s,
-// the node launches a Wi-Fi Captive Portal named "GreenNode-Setup".
+// 💡 NOTE: Credentials load automatically from NVS flash memory at boot.
+// Hold the onboard BOOT button (GPIO 9) for 3 seconds at any time to launch
+// the "GreenNode-Setup" Wi-Fi Captive Portal.
 
 // --- Fallback Defaults (Used only on fresh chip before first Web Portal setup) ---
 const char* DEFAULT_WIFI_SSID                       = "Malith's A55";
@@ -40,8 +40,9 @@ char configWifiSsid[64]                             = "";
 char configWifiPassword[64]                         = "";
 char configBackendBase[128]                         = "";
 char configDeviceId[64]                             = "";
+bool hasCustomNvsConfig                             = false;
 
-// --- Hardware Pin Assignments (ESP32-C3 SuperMini) ---
+// --- Hardware Pin Assignments (ESP32-C3 SuperMini - DO NOT MODIFY) ---
 const int PIN_SOIL_MD0869_AO                        = 0;       // GPIO0 (ADC1_CH0) -> MD0869 Reference Analog Output
 const int PIN_SOIL_POWER_GATE                       = 2;       // GPIO2 -> Dedicated VCC Power-Gate
 const int PIN_DHT_DATA                              = 3;       // GPIO3 -> Single-Wire Digital Data
@@ -50,10 +51,13 @@ const int PIN_BH1750_SCL                            = 6;       // GPIO6 -> Hardw
 const int PIN_STATUS_LED                            = 8;       // GPIO8 -> Onboard Blue LED (Active LOW)
 const int PIN_BOOT_BUTTON                           = 9;       // GPIO9 -> Onboard BOOT Button (Active LOW)
 
-// --- Telemetry & Timing Intervals ---
+// --- Telemetry & 24/7 Watchdog Timing Intervals ---
 const unsigned long REFRESH_INTERVAL_MS             = 10000;   // Interval between telemetry transmissions (10 sec)
 const unsigned long WIFI_TIMEOUT_MS                 = 15000;   // Max time to wait for Wi-Fi association (15 sec)
 const unsigned long HTTP_TIMEOUT_MS                 = 12000;   // HTTP/HTTPS request timeout (12 sec)
+const unsigned long PORTAL_TIMEOUT_MS               = 300000;  // 5-min auto-exit timeout for Captive Portal (24/7 safety)
+const uint32_t      WDT_TIMEOUT_SEC                 = 45;      // Hardware Watchdog reset timer (45 sec)
+const uint32_t      MIN_SAFE_FREE_HEAP              = 40960;   // 40 KB minimum heap guard for 24/7 TLS stability
 
 // --- Time Service (Sri Lanka Standard Time: UTC+5:30, No DST) ---
 const char* NTP_SERVER_PRIMARY                      = "pool.ntp.org";
@@ -86,10 +90,7 @@ const char* NVS_NAMESPACE                           = "greennode";
 DHT dht(PIN_DHT_DATA, DHTTYPE);
 BH1750 lightMeter;
 
-WebServer portalServer(80);
-DNSServer dnsServer;
-
-// Global state tracking
+// Global state tracking (Notice: WebServer & DNSServer are NOT global, saving RAM 24/7!)
 bool bh1750Initialized = false;
 unsigned long lastTelemetryMillis = 0;
 int failedWifiAttempts = 0;
@@ -109,6 +110,9 @@ struct SensorTelemetry {
     char  timestamp[25];
 };
 
+// Forward declarations
+void startCaptivePortal();
+
 // ============================================================================
 // 3. NVS PREFERENCES & CONFIGURATION MANAGEMENT
 // ============================================================================
@@ -117,10 +121,11 @@ void loadConfiguration() {
     Preferences prefs;
     prefs.begin(NVS_NAMESPACE, true); // Read-only
 
-    String sSsid    = prefs.getString("ssid", DEFAULT_WIFI_SSID);
-    String sPass    = prefs.getString("pass", DEFAULT_WIFI_PASSWORD);
-    String sBackend = prefs.getString("backend", DEFAULT_BACKEND_BASE);
-    String sDevId   = prefs.getString("dev_id", DEFAULT_DEVICE_ID);
+    hasCustomNvsConfig = prefs.isKey("ssid");
+    String sSsid       = prefs.getString("ssid", DEFAULT_WIFI_SSID);
+    String sPass       = prefs.getString("pass", DEFAULT_WIFI_PASSWORD);
+    String sBackend    = prefs.getString("backend", DEFAULT_BACKEND_BASE);
+    String sDevId      = prefs.getString("dev_id", DEFAULT_DEVICE_ID);
     prefs.end();
 
     strncpy(configWifiSsid,     sSsid.c_str(),    sizeof(configWifiSsid) - 1);
@@ -133,7 +138,7 @@ void loadConfiguration() {
     configBackendBase[sizeof(configBackendBase) - 1]   = '\0';
     configDeviceId[sizeof(configDeviceId) - 1]         = '\0';
 
-    Serial.println("[NVS] Configuration loaded:");
+    Serial.printf("[NVS] Configuration loaded (%s):\n", hasCustomNvsConfig ? "Saved Profile" : "Compile-Time Default");
     Serial.printf("      Wi-Fi SSID  : %s\n", configWifiSsid);
     Serial.printf("      Device UUID : %s\n", configDeviceId);
     Serial.printf("      Backend Host: %s\n", configBackendBase);
@@ -151,20 +156,11 @@ void saveConfiguration(const char* ssid, const char* pass, const char* backend, 
 }
 
 // ============================================================================
-// 4. CAPTIVE PORTAL PROVISIONING SERVICE (SoftAP + Web UI)
+// 4. ON-DEMAND CAPTIVE PORTAL (Zero RAM Footprint During Normal 24/7 Run)
 // ============================================================================
 
-void handlePortalNotFound() {
-    // Redirect all captive portal detection queries (Apple, Android, Windows) to root
-    portalServer.sendHeader("Location", "http://192.168.4.1/", true);
-    portalServer.send(302, "text/plain", "");
-}
-
-void handlePortalRoot() {
-    // Scan networks nearby to populate the dropdown
-    int n = WiFi.scanNetworks();
-
-    String html = R"html(<!DOCTYPE html>
+// Stored in Flash (PROGMEM) so it never touches SRAM until portal is opened
+static const char PORTAL_HTML_HEAD[] PROGMEM = R"html(<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -202,21 +198,11 @@ select:focus, input:focus { border-color: #10b981; }
 .footer { text-align: center; margin-top: 20px; font-size: 11px; color: #64748b; line-height: 1.5; }
 </style>
 <script>
-function onSelectNet(val) {
-  if (val) {
-    document.getElementById('ssid').value = val;
-  }
-}
+function onSelectNet(val) { if (val) document.getElementById('ssid').value = val; }
 function togglePw() {
-  var p = document.getElementById('pass');
-  var b = document.getElementById('pwBtn');
-  if (p.type === 'password') {
-    p.type = 'text';
-    b.textContent = 'Hide';
-  } else {
-    p.type = 'password';
-    b.textContent = 'Show';
-  }
+  var p = document.getElementById('pass'), b = document.getElementById('pwBtn');
+  if (p.type === 'password') { p.type = 'text'; b.textContent = 'Hide'; }
+  else { p.type = 'password'; b.textContent = 'Show'; }
 }
 </script>
 </head>
@@ -228,7 +214,6 @@ function togglePw() {
     <p class="sub">Sensor Module Wi-Fi &amp; UUID Provisioning</p>
     <div class="badge">MD0869 EDITION</div>
   </div>
-
   <form method="POST" action="/save">
     <div class="form-group">
       <label for="scannedNet">Detected Wi-Fi Networks</label>
@@ -236,23 +221,52 @@ function togglePw() {
         <option value="">-- Select a nearby Wi-Fi network --</option>
 )html";
 
+void startCaptivePortal() {
+    Serial.println("\n======================================================================");
+    Serial.println("     🌿 GREEN NODE — ONBOARD PROVISIONING PORTAL ACTIVATED            ");
+    Serial.println("======================================================================");
+    Serial.println("1. Connect your phone / laptop to Wi-Fi: \"GreenNode-Setup\" (Open AP)");
+    Serial.println("2. Setup page opens automatically (or browse to http://192.168.4.1)");
+    Serial.println("3. Portal auto-exits after 5 minutes of inactivity for 24/7 safety.");
+    Serial.println("======================================================================\n");
+
+    // Pre-scan Wi-Fi networks ONCE before starting SoftAP so page loads instantaneously
+    WiFi.disconnect(true);
+    delay(100);
+    WiFi.mode(WIFI_AP_STA);
+    Serial.println("[PORTAL] Scanning nearby Wi-Fi networks...");
+    int n = WiFi.scanNetworks();
+    String cachedNetworkOptions = "";
     for (int i = 0; i < n; i++) {
         String ssidName = WiFi.SSID(i);
         if (ssidName.length() > 0) {
-            int rssi = WiFi.RSSI(i);
-            html += "<option value=\"" + ssidName + "\">" + ssidName + " (" + String(rssi) + " dBm)</option>\n";
+            cachedNetworkOptions += "<option value=\"" + ssidName + "\">" + ssidName + " (" + String(WiFi.RSSI(i)) + " dBm)</option>\n";
         }
     }
+    WiFi.scanDelete(); // Free scan buffer from RAM immediately
 
-    html += R"html(
+    // Launch SoftAP
+    IPAddress apIP(192, 168, 4, 1);
+    WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
+    WiFi.softAP(AP_SSID);
+    WiFi.setTxPower(WIFI_POWER_11dBm);
+
+    // Local stack allocation: consumes 0 bytes when portal is not active!
+    DNSServer dnsServer;
+    WebServer portalServer(80);
+    unsigned long portalActivityTimer = millis();
+
+    auto sendPortalPage = [&]() {
+        portalActivityTimer = millis();
+        String html = FPSTR(PORTAL_HTML_HEAD);
+        html += cachedNetworkOptions;
+        html += R"html(
       </select>
     </div>
-
     <div class="form-group">
       <label for="ssid">Wi-Fi Network Name (SSID) *</label>
       <input type="text" id="ssid" name="ssid" value=")html" + String(configWifiSsid) + R"html(" required placeholder="e.g. Greenhouse_WiFi">
     </div>
-
     <div class="form-group">
       <label for="pass">Wi-Fi Password</label>
       <div class="pw-wrap">
@@ -260,22 +274,18 @@ function togglePw() {
         <button type="button" id="pwBtn" class="pw-toggle" onclick="togglePw()">Show</button>
       </div>
     </div>
-
     <div class="form-group">
       <label for="device_id">Sensor Module Device UUID *</label>
       <input type="text" id="device_id" name="device_id" value=")html" + String(configDeviceId) + R"html(" required placeholder="e.g. a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11">
       <div class="hint">⚠️ Registered from Green Node Web Dashboard under your Greenhouse. Unregistered UUIDs receive <code>403 Forbidden</code>.</div>
     </div>
-
     <div class="form-group">
       <label for="backend">Backend Server URL *</label>
       <input type="text" id="backend" name="backend" value=")html" + String(configBackendBase) + R"html(" required placeholder="https://blue-circle.onrender.com">
       <div class="hint">Production: <code>https://blue-circle.onrender.com</code> &bull; Local test: <code>http://192.168.x.x:4000</code></div>
     </div>
-
     <button type="submit" class="btn">💾 Save &amp; Connect</button>
   </form>
-
   <div class="footer">
     ESP32-C3 SuperMini Node &bull; Sri Lanka Time (UTC+5:30)<br>
     To reconfigure later: hold the onboard BOOT button (GPIO 9) for 3 seconds.
@@ -283,110 +293,94 @@ function togglePw() {
 </div>
 </body>
 </html>)html";
+        portalServer.send(200, "text/html", html);
+    };
 
-    portalServer.send(200, "text/html", html);
-}
+    portalServer.on("/", HTTP_GET, sendPortalPage);
+    portalServer.on("/generate_204", HTTP_GET, sendPortalPage);
+    portalServer.on("/hotspot-detect.html", HTTP_GET, sendPortalPage);
+    portalServer.on("/canonical.html", HTTP_GET, sendPortalPage);
+    portalServer.on("/connecttest.txt", HTTP_GET, sendPortalPage);
+    portalServer.on("/ncsi.txt", HTTP_GET, sendPortalPage);
 
-void handlePortalSave() {
-    String newSsid    = portalServer.arg("ssid");
-    String newPass    = portalServer.arg("password");
-    String newDevId   = portalServer.arg("device_id");
-    String newBackend = portalServer.arg("backend");
+    portalServer.on("/save", HTTP_POST, [&]() {
+        portalActivityTimer = millis();
+        String newSsid    = portalServer.arg("ssid");
+        String newPass    = portalServer.arg("password");
+        String newDevId   = portalServer.arg("device_id");
+        String newBackend = portalServer.arg("backend");
 
-    newSsid.trim();
-    newPass.trim();
-    newDevId.trim();
-    newBackend.trim();
+        newSsid.trim();
+        newPass.trim();
+        newDevId.trim();
+        newBackend.trim();
 
-    if (newSsid.length() == 0 || newDevId.length() == 0) {
-        portalServer.send(400, "text/html", "<h3>Error: Wi-Fi SSID and Device UUID are mandatory.</h3><p><a href='/'>Go back</a></p>");
-        return;
-    }
+        if (newSsid.length() == 0 || newDevId.length() == 0) {
+            portalServer.send(400, "text/html", "<h3>Error: Wi-Fi SSID and Device UUID are mandatory.</h3><p><a href='/'>Go back</a></p>");
+            return;
+        }
 
-    if (newBackend.length() == 0) {
-        newBackend = "https://blue-circle.onrender.com";
-    }
-    while (newBackend.endsWith("/")) {
-        newBackend.remove(newBackend.length() - 1);
-    }
+        if (newBackend.length() == 0) {
+            newBackend = DEFAULT_BACKEND_BASE;
+        }
+        while (newBackend.endsWith("/")) {
+            newBackend.remove(newBackend.length() - 1);
+        }
 
-    saveConfiguration(newSsid.c_str(), newPass.c_str(), newBackend.c_str(), newDevId.c_str());
+        saveConfiguration(newSsid.c_str(), newPass.c_str(), newBackend.c_str(), newDevId.c_str());
 
-    String responseHtml = R"html(<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Settings Saved - Green Node</title>
+        String responseHtml = R"html(<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings Saved</title>
 <style>
-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
-.card { background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 32px; max-width: 420px; width: 100%; text-align: center; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); }
+body { font-family: -apple-system, sans-serif; background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
+.card { background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 32px; max-width: 420px; width: 100%; text-align: center; }
 .badge { background: #064e3b; color: #34d399; padding: 6px 14px; border-radius: 9999px; font-weight: 600; font-size: 13px; display: inline-block; margin-bottom: 16px; }
 h2 { margin: 0 0 12px; color: #fff; font-size: 22px; }
 p { color: #94a3b8; font-size: 14px; line-height: 1.5; margin: 8px 0; }
 .mono { font-family: monospace; background: #0f172a; padding: 4px 8px; border-radius: 6px; color: #38bdf8; word-break: break-all; }
 .spinner { width: 36px; height: 36px; border: 3px solid #334155; border-top-color: #10b981; border-radius: 50%; animation: spin 1s linear infinite; margin: 24px auto 8px; }
 @keyframes spin { to { transform: rotate(360deg); } }
-</style>
-</head>
-<body>
+</style></head><body>
 <div class="card">
   <div class="badge">✅ SAVED TO FLASH</div>
   <h2>Rebooting Node</h2>
   <p>Connecting to Wi-Fi:<br><strong style="color:#fff;">)html" + newSsid + R"html(</strong></p>
   <p>Sensor Module UUID:<br><span class="mono">)html" + newDevId + R"html(</span></p>
   <div class="spinner"></div>
-  <p style="font-size:12px; color:#64748b; margin-top:16px;">The ESP32 is rebooting in 2 seconds and will start streaming telemetry.</p>
-</div>
-</body>
-</html>)html";
+  <p style="font-size:12px; color:#64748b; margin-top:16px;">Rebooting in 2 seconds to start streaming telemetry...</p>
+</div></body></html>)html";
 
-    portalServer.send(200, "text/html", responseHtml);
-    delay(2000);
-    ESP.restart();
-}
+        portalServer.send(200, "text/html", responseHtml);
 
-void startCaptivePortal() {
-    Serial.println("\n======================================================================");
-    Serial.println("     🌿 GREEN NODE — ONBOARD PROVISIONING PORTAL ACTIVATED            ");
-    Serial.println("======================================================================");
-    Serial.println("1. Connect your phone / laptop to Wi-Fi: \"GreenNode-Setup\" (Open AP)");
-    Serial.println("2. The setup page will open automatically (or navigate to http://192.168.4.1)");
-    Serial.println("3. Enter Wi-Fi credentials, paste registered UUID, and click Save.");
-    Serial.println("======================================================================\n");
+        // Flush HTTP response cleanly before rebooting so phone browser doesn't show "Connection Reset"
+        unsigned long flushStart = millis();
+        while (millis() - flushStart < 1500) {
+            portalServer.handleClient();
+            esp_task_wdt_reset();
+            delay(10);
+        }
+        ESP.restart();
+    });
 
-    WiFi.disconnect(true);
-    delay(100);
-    WiFi.mode(WIFI_AP);
-    IPAddress apIP(192, 168, 4, 1);
-    WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
-    WiFi.softAP(AP_SSID);
+    portalServer.onNotFound([&]() {
+        portalServer.sendHeader("Location", "http://192.168.4.1/", true);
+        portalServer.send(302, "text/plain", "");
+    });
 
-    // DNS server intercepts all requests and redirects to ESP32 local IP
     dnsServer.start(DNS_PORT, "*", apIP);
-
-    // Setup HTTP endpoints
-    portalServer.on("/", HTTP_GET, handlePortalRoot);
-    portalServer.on("/save", HTTP_POST, handlePortalSave);
-    // Common captive portal probe paths for Android, iOS, Windows:
-    portalServer.on("/generate_204", HTTP_GET, handlePortalRoot);
-    portalServer.on("/hotspot-detect.html", HTTP_GET, handlePortalRoot);
-    portalServer.on("/canonical.html", HTTP_GET, handlePortalRoot);
-    portalServer.on("/connecttest.txt", HTTP_GET, handlePortalRoot);
-    portalServer.on("/ncsi.txt", HTTP_GET, handlePortalRoot);
-    portalServer.onNotFound(handlePortalNotFound);
-
     portalServer.begin();
 
     unsigned long lastBlink = 0;
     bool ledState = false;
 
-    // Loop indefinitely in portal mode until user saves & reboots
-    while (true) {
+    // Run portal until user saves OR 5-minute safety timeout elapses
+    while (millis() - portalActivityTimer < PORTAL_TIMEOUT_MS) {
+        esp_task_wdt_reset(); // Keep hardware watchdog fed
         dnsServer.processNextRequest();
         portalServer.handleClient();
 
-        // Distinct fast blinking LED (150ms) indicates Setup Mode is active
+        // Fast 150ms blink indicates Setup Mode
         if (millis() - lastBlink > 150) {
             lastBlink = millis();
             ledState = !ledState;
@@ -394,6 +388,10 @@ void startCaptivePortal() {
         }
         delay(5);
     }
+
+    Serial.println("[PORTAL] ⏱️ 5-minute inactivity timeout reached. Rebooting into normal 24/7 operation...");
+    delay(200);
+    ESP.restart();
 }
 
 // ============================================================================
@@ -417,6 +415,22 @@ const char* classifyLux(float lux) {
 double roundToDp(float value, int decimals) {
     double factor = pow(10.0, decimals);
     return round((double)value * factor) / factor;
+}
+
+// Checks if BOOT button (GPIO 9) is held for 3 seconds
+void checkBootButtonHold() {
+    if (digitalRead(PIN_BOOT_BUTTON) == LOW) {
+        unsigned long pressStart = millis();
+        while (digitalRead(PIN_BOOT_BUTTON) == LOW) {
+            esp_task_wdt_reset();
+            digitalWrite(PIN_STATUS_LED, LOW);  delay(50);
+            digitalWrite(PIN_STATUS_LED, HIGH); delay(50);
+            if (millis() - pressStart >= 3000) {
+                Serial.println("\n[SETUP] 🔘 BOOT button held for 3s! Launching Captive Portal...");
+                startCaptivePortal();
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -532,21 +546,11 @@ bool connectToWiFi() {
 
     unsigned long start = millis();
     while (WiFi.status() != WL_CONNECTED && (millis() - start < WIFI_TIMEOUT_MS)) {
+        esp_task_wdt_reset();
         digitalWrite(PIN_STATUS_LED, !digitalRead(PIN_STATUS_LED));
         delay(300);
         Serial.print(".");
-
-        // Check if user holds BOOT button during Wi-Fi connection attempts
-        if (digitalRead(PIN_BOOT_BUTTON) == LOW) {
-            unsigned long bStart = millis();
-            while (digitalRead(PIN_BOOT_BUTTON) == LOW) {
-                if (millis() - bStart >= 2500) {
-                    Serial.println("\n[SETUP] BOOT button held! Entering Captive Portal...");
-                    startCaptivePortal();
-                }
-                delay(50);
-            }
-        }
+        checkBootButtonHold();
     }
 
     if (WiFi.status() == WL_CONNECTED) {
@@ -557,11 +561,20 @@ bool connectToWiFi() {
         return true;
     } else {
         digitalWrite(PIN_STATUS_LED, LOW);  // ON if failed
-        Serial.println("\n[WiFi] ❌ Connection timed out.");
         failedWifiAttempts++;
-        if (failedWifiAttempts >= 3) {
-            Serial.println("[WiFi] ⚠️ 3 consecutive connection failures. Launching Provisioning Portal...");
+        Serial.printf("\n[WiFi] ❌ Connection timed out (Attempt %d).\n", failedWifiAttempts);
+
+        // 24/7 RECOVERY FIX:
+        // Only auto-open the Captive Portal on 3 failures if the chip has NEVER been configured via NVS.
+        // If it already has saved credentials, a router power outage shouldn't trap the node in AP mode;
+        // instead, reboot cleanly after 20 failed attempts (~5 mins) to clear the RF baseband.
+        if (!hasCustomNvsConfig && failedWifiAttempts >= 3) {
+            Serial.println("[WiFi] ⚠️ Default credentials failed 3 times. Launching Provisioning Portal...");
             startCaptivePortal();
+        } else if (failedWifiAttempts >= 20) {
+            Serial.println("[WiFi] 🔄 Router unreachable for 5 minutes. Rebooting RF stack cleanly...");
+            delay(200);
+            ESP.restart();
         }
         return false;
     }
@@ -594,7 +607,13 @@ void sendTelemetryHttp(const SensorTelemetry& data) {
         return;
     }
 
-    // Target dedicated device endpoint: /api/devices/<configDeviceId>/readings
+    // 24/7 Heap Safety Guard: Ensure sufficient contiguous RAM before TLS handshake
+    if (ESP.getFreeHeap() < MIN_SAFE_FREE_HEAP) {
+        Serial.printf("[SYS] ⚠️ Low heap detected (%u bytes). Performing preventive reboot...\n", ESP.getFreeHeap());
+        delay(100);
+        ESP.restart();
+    }
+
     char targetUrl[220];
     snprintf(targetUrl, sizeof(targetUrl), "%s/api/devices/%s/readings", configBackendBase, configDeviceId);
 
@@ -604,7 +623,6 @@ void sendTelemetryHttp(const SensorTelemetry& data) {
     StaticJsonDocument<512> doc;
 #endif
 
-    // Lean payload: deviceId is already identified in the URL!
     doc["temperature"]    = roundToDp(data.temperature, 2);
     doc["humidity"]       = roundToDp(data.humidity, 2);
     doc["soilMoisture"]   = roundToDp(data.soilMoisture, 1);
@@ -633,21 +651,23 @@ void sendTelemetryHttp(const SensorTelemetry& data) {
     http.setReuse(false);
     http.setTimeout(HTTP_TIMEOUT_MS);
 
+    // Persistent static clients avoid repeated heap churn over months of 24/7 operation
+    static WiFiClientSecure secureClient;
+    static WiFiClient plainClient;
+
     int httpCode = 0;
     if (isHttps) {
-        WiFiClientSecure client;
-        client.setInsecure(); // Skip certificate bundle to save flash & RAM
-        client.setTimeout(HTTP_TIMEOUT_MS / 1000);
-        if (!http.begin(client, targetUrl)) {
+        secureClient.setInsecure(); // Skip certificate bundle to save flash & RAM
+        secureClient.setTimeout(HTTP_TIMEOUT_MS / 1000);
+        if (!http.begin(secureClient, targetUrl)) {
             Serial.println("[HTTP] ❌ Unable to initialize HTTPS client.");
             return;
         }
         http.addHeader("Content-Type", "application/json");
         httpCode = http.POST((uint8_t*)jsonPayload, payloadLen);
     } else {
-        WiFiClient client;
-        client.setTimeout(HTTP_TIMEOUT_MS / 1000);
-        if (!http.begin(client, targetUrl)) {
+        plainClient.setTimeout(HTTP_TIMEOUT_MS / 1000);
+        if (!http.begin(plainClient, targetUrl)) {
             Serial.println("[HTTP] ❌ Unable to initialize HTTP client.");
             return;
         }
@@ -655,8 +675,9 @@ void sendTelemetryHttp(const SensorTelemetry& data) {
         httpCode = http.POST((uint8_t*)jsonPayload, payloadLen);
     }
 
-    if (httpCode == 201) {
-        Serial.printf("[HTTP] ✅ INGESTED (HTTP 201) | Payload: %u bytes\n", (unsigned int)payloadLen);
+    if (httpCode == 201 || httpCode == 200) {
+        Serial.printf("[HTTP] ✅ INGESTED (HTTP %d) | Payload: %u bytes | Free Heap: %u B\n",
+                      httpCode, (unsigned int)payloadLen, ESP.getFreeHeap());
         pulseStatusLed(40);
     } else if (httpCode == 403) {
         String resp = http.getString();
@@ -664,7 +685,7 @@ void sendTelemetryHttp(const SensorTelemetry& data) {
         Serial.printf("       DEVICE_ID \"%s\" is not registered in Web Dashboard.\n", configDeviceId);
         Serial.printf("       Server response: %s\n\n", resp.c_str());
         for (int i = 0; i < 3; i++) {
-            digitalWrite(PIN_STATUS_LED, LOW); delay(70);
+            digitalWrite(PIN_STATUS_LED, LOW);  delay(70);
             digitalWrite(PIN_STATUS_LED, HIGH); delay(70);
         }
     } else if (httpCode > 0) {
@@ -685,11 +706,23 @@ void setup() {
     // Allow time for host USB CDC enumeration
     delay(1500);
 
-    // Handshake: wait up to 3 seconds if Serial Monitor is connecting
     unsigned long startSerialWait = millis();
     while (!Serial && (millis() - startSerialWait < 3000)) {
         delay(10);
     }
+
+    // Initialize Hardware Watchdog Timer for 24/7 unattended operation
+#if ESP_IDF_VERSION_MAJOR >= 5
+    esp_task_wdt_config_t wdt_config = {
+        .timeout_ms = WDT_TIMEOUT_SEC * 1000,
+        .idle_core_mask = (1 << 0),
+        .trigger_panic = true
+    };
+    esp_task_wdt_reconfigure(&wdt_config);
+#else
+    esp_task_wdt_init(WDT_TIMEOUT_SEC, true);
+#endif
+    esp_task_wdt_add(NULL);
 
     // Initialize Onboard Status LED & BOOT Button
     pinMode(PIN_STATUS_LED, OUTPUT);
@@ -708,8 +741,9 @@ void setup() {
     // Initialize DHT22
     dht.begin();
 
-    // Initialize BH1750 I2C
+    // Initialize BH1750 I2C with 1 second bus timeout to prevent I2C lockups
     Wire.begin(PIN_BH1750_SDA, PIN_BH1750_SCL);
+    Wire.setTimeOut(1000);
     bh1750Initialized = lightMeter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE);
 
     Serial.println("\n======================================================================");
@@ -731,26 +765,11 @@ void setup() {
                   (MD0869_CAL_A == 0.0f && MD0869_CAL_B == 0.0f) ? "(Uncalibrated - Factory pass-through)" : "(Active)");
     Serial.println("======================================================================\n");
 
-    // Check if BOOT button is held at boot to force Captive Portal
-    if (digitalRead(PIN_BOOT_BUTTON) == LOW) {
-        Serial.println("[SETUP] BOOT button held at startup! Hold for 3s to enter Setup Portal...");
-        unsigned long startPress = millis();
-        bool forcePortal = false;
-        while (digitalRead(PIN_BOOT_BUTTON) == LOW) {
-            digitalWrite(PIN_STATUS_LED, LOW); delay(50);
-            digitalWrite(PIN_STATUS_LED, HIGH); delay(50);
-            if (millis() - startPress >= 3000) {
-                forcePortal = true;
-                break;
-            }
-        }
-        if (forcePortal) {
-            startCaptivePortal();
-        }
-    }
-
-    // Load active configuration from NVS flash memory
+    // Load active configuration from NVS flash memory first so Portal fields are pre-filled
     loadConfiguration();
+
+    // Check if BOOT button is held at boot to force Captive Portal
+    checkBootButtonHold();
 
     // If no UUID or SSID is configured, automatically open Captive Portal
     if (strlen(configWifiSsid) == 0 || strlen(configDeviceId) == 0) {
@@ -773,36 +792,24 @@ void setup() {
 // ============================================================================
 
 void loop() {
+    // 1. Feed the Hardware Watchdog Timer on every iteration
+    esp_task_wdt_reset();
+
+    // 2. Monitor BOOT button during normal runtime: holding for 3s opens setup portal
+    checkBootButtonHold();
+
     unsigned long currentMillis = millis();
 
-    // Monitor BOOT button during normal runtime: holding for 3s opens setup portal
-    if (digitalRead(PIN_BOOT_BUTTON) == LOW) {
-        unsigned long pressStart = millis();
-        bool triggered = false;
-        while (digitalRead(PIN_BOOT_BUTTON) == LOW) {
-            digitalWrite(PIN_STATUS_LED, LOW); delay(50);
-            digitalWrite(PIN_STATUS_LED, HIGH); delay(50);
-            if (millis() - pressStart >= 3000) {
-                triggered = true;
-                break;
-            }
-        }
-        if (triggered) {
-            Serial.println("[RUNTIME] BOOT button held for 3s! Opening Provisioning Portal...");
-            startCaptivePortal();
-        }
-    }
-
-    // Non-blocking drift-free interval scheduler
+    // 3. Non-blocking drift-free interval scheduler
     if (currentMillis - lastTelemetryMillis >= REFRESH_INTERVAL_MS) {
         lastTelemetryMillis = currentMillis;
 
-        // 1. Maintain Wi-Fi connectivity
+        // Maintain Wi-Fi connectivity
         if (WiFi.status() != WL_CONNECTED) {
             connectToWiFi();
         }
 
-        // 2. Sample all sensors sequentially
+        // Sample all sensors sequentially
         SensorTelemetry data;
         sampleSoilSensor(data);             // Gated reading: probe is turned OFF before Wi-Fi TX
         sampleEnvironmentalSensor(data);
@@ -810,15 +817,15 @@ void loop() {
         sampleInternalMetrics(data);
         populateIso8601Timestamp(data.timestamp, sizeof(data.timestamp));
 
-        // 3. Visual feedback
+        // Visual feedback
         pulseStatusLed(40);
 
-        // 4. Formatted Terminal Dashboard
+        // Formatted Terminal Dashboard
         Serial.println("┌─────────────────────────── TELEMETRY REPORT ───────────────────────────┐");
         Serial.printf("│ 🕐 Timestamp (UTC ISO)     : %-42s│\n",
-                  data.timestamp[0] != '\0' ? data.timestamp : "(Syncing with NTP...)");
+                      data.timestamp[0] != '\0' ? data.timestamp : "(Syncing with NTP...)");
         Serial.printf("│ 🌾 Soil Moisture (MD0869)  : %5.1f %%  (Raw: %4d | Cal: %6.1f / 4095) │\n",
-                  data.soilMoisture, data.soilRaw, data.soilCalibrated);
+                      data.soilMoisture, data.soilRaw, data.soilCalibrated);
         if (data.dhtValid) {
             Serial.printf("│ 🌡️  Temperature            : %5.2f °C                                  │\n", data.temperature);
             Serial.printf("│ 💧 Relative Humidity       : %5.2f %%                                   │\n", data.humidity);
@@ -835,7 +842,7 @@ void loop() {
                       data.rssi, data.wifiSsid[0] != '\0' ? data.wifiSsid : "Disconnected");
         Serial.println("└────────────────────────────────────────────────────────────────────────┘\n");
 
-        // 5. Send JSON to backend (probe is guaranteed OFF, safe from brownout)
+        // Send JSON to backend (probe is guaranteed OFF, safe from brownout)
         sendTelemetryHttp(data);
     }
 
