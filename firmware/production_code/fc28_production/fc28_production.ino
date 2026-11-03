@@ -78,8 +78,9 @@ const int ADC_SAMPLE_COUNT                          = 16;      // Oversampling f
 const float FC28_CAL_A                              = 0.0f;    // Slope 'a'
 const float FC28_CAL_B                              = 0.0f;    // Offset 'b'
 
-// --- Captive Portal Settings ---
+// --- Captive Portal Settings (Password Protected) ---
 const char* AP_SSID                                 = "GreenNode-Setup";
+const char* AP_PASSWORD                             = "greenNode3223";  // WPA2-PSK Setup Hotspot Password
 const byte  DNS_PORT                                = 53;
 const char* NVS_NAMESPACE                           = "greennode";
 
@@ -225,9 +226,10 @@ void startCaptivePortal() {
     Serial.println("\n======================================================================");
     Serial.println("     🌿 GREEN NODE — ONBOARD PROVISIONING PORTAL ACTIVATED            ");
     Serial.println("======================================================================");
-    Serial.println("1. Connect your phone / laptop to Wi-Fi: \"GreenNode-Setup\" (Open AP)");
-    Serial.println("2. Setup page opens automatically (or browse to http://192.168.4.1)");
-    Serial.println("3. Portal auto-exits after 5 minutes of inactivity for 24/7 safety.");
+    Serial.printf ("1. Connect your phone / laptop to Wi-Fi: \"%s\"\n", AP_SSID);
+    Serial.printf ("2. Hotspot Password: \"%s\"\n", AP_PASSWORD);
+    Serial.println("3. Setup page opens automatically (or browse to http://192.168.4.1)");
+    Serial.println("4. Portal auto-exits after 5 minutes of inactivity for 24/7 safety.");
     Serial.println("======================================================================\n");
 
     // 1. Scan available Wi-Fi networks in STA mode FIRST so user can pick from dropdown
@@ -246,9 +248,9 @@ void startCaptivePortal() {
             cachedNetworkOptions += "<option value=\"" + ssidName + "\">" + ssidName + " (" + String(WiFi.RSSI(i)) + " dBm)</option>\n";
         }
     }
-    WiFi.scanDelete(); // Free scan buffer from RAM immediately
+    WiFi.scanDelete();
 
-    // 2. Switch cleanly to dedicated SoftAP mode (Channel 1, broadcast active)
+    // 2. Switch cleanly to dedicated SoftAP mode with Password Protection
     WiFi.disconnect(true);
     delay(100);
     WiFi.mode(WIFI_AP);
@@ -258,18 +260,18 @@ void startCaptivePortal() {
     IPAddress netMsk(255, 255, 255, 0);
     WiFi.softAPConfig(apIP, apIP, netMsk);
 
-    // Channel 1, open network, max 4 clients
-    bool apStarted = WiFi.softAP(AP_SSID, NULL, 1, 0, 4);
-    WiFi.setTxPower(WIFI_POWER_15dBm); // Solid RF power so phone easily discovers SSID
+    // Channel 1, WPA2-PSK password protected, max 4 clients
+    bool apStarted = WiFi.softAP(AP_SSID, AP_PASSWORD, 1, 0, 4);
+    WiFi.setTxPower(WIFI_POWER_15dBm);
 
     if (apStarted) {
-        Serial.printf("[PORTAL] ✅ SoftAP \"%s\" ACTIVE!\n", AP_SSID);
-        Serial.printf("         IP: %s | Channel: 1 | MAC: %s\n",
-                      WiFi.softAPIP().toString().c_str(), WiFi.softAPmacAddress().c_str());
+        Serial.printf("[PORTAL] ✅ Protected SoftAP \"%s\" ACTIVE!\n", AP_SSID);
+        Serial.printf("         Password: %s | IP: %s | Channel: 1\n",
+                      AP_PASSWORD, WiFi.softAPIP().toString().c_str());
     } else {
-        Serial.println("[PORTAL] ❌ Initial SoftAP start failed, retrying...");
+        Serial.println("[PORTAL] ❌ SoftAP start failed, retrying...");
         delay(300);
-        WiFi.softAP(AP_SSID);
+        WiFi.softAP(AP_SSID, AP_PASSWORD);
     }
 
     // 3. Start Captive DNS Server (wildcard redirect to 192.168.4.1)
@@ -312,7 +314,7 @@ void startCaptivePortal() {
     <button type="submit" class="btn">💾 Save &amp; Connect</button>
   </form>
   <div class="footer">
-    ESP32-C3 SuperMini Node &bull; Sri Lanka Time (UTC+5:30)<br>
+    ESP32-C3 SuperMini Node &bull; Hotspot PW: <code>greenNode3223</code><br>
     To reconfigure later: hold the onboard BOOT button (GPIO 9) for 3 seconds.
   </div>
 </div>
@@ -354,33 +356,120 @@ void startCaptivePortal() {
 
         saveConfiguration(newSsid.c_str(), newPass.c_str(), newBackend.c_str(), newDevId.c_str());
 
+        // Dynamic Confirmation Page with 3s Countdown and explicit Completion Card
         String responseHtml = R"html(<!DOCTYPE html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Settings Saved</title>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings Saved - Green Node</title>
 <style>
-body { font-family: -apple-system, sans-serif; background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
-.card { background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 32px; max-width: 420px; width: 100%; text-align: center; }
-.badge { background: #064e3b; color: #34d399; padding: 6px 14px; border-radius: 9999px; font-weight: 600; font-size: 13px; display: inline-block; margin-bottom: 16px; }
-h2 { margin: 0 0 12px; color: #fff; font-size: 22px; }
-p { color: #94a3b8; font-size: 14px; line-height: 1.5; margin: 8px 0; }
-.mono { font-family: monospace; background: #0f172a; padding: 4px 8px; border-radius: 6px; color: #38bdf8; word-break: break-all; }
-.spinner { width: 36px; height: 36px; border: 3px solid #334155; border-top-color: #10b981; border-radius: 50%; animation: spin 1s linear infinite; margin: 24px auto 8px; }
-@keyframes spin { to { transform: rotate(360deg); } }
-</style></head><body>
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: #0f172a; color: #f8fafc;
+  display: flex; align-items: center; justify-content: center;
+  min-height: 100vh; margin: 0; padding: 20px;
+}
+.card {
+  background: #1e293b; border: 1px solid #334155; border-radius: 16px;
+  padding: 30px 24px; max-width: 420px; width: 100%; text-align: center;
+  box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);
+}
+.badge {
+  background: #064e3b; color: #34d399; padding: 6px 14px;
+  border-radius: 9999px; font-weight: 700; font-size: 13px;
+  display: inline-block; margin-bottom: 14px;
+}
+h2 { margin: 0 0 10px; color: #fff; font-size: 22px; font-weight: 700; }
+p { color: #94a3b8; font-size: 13px; line-height: 1.5; margin: 6px 0; }
+.info-box {
+  background: #0f172a; border: 1px solid #334155; border-radius: 12px;
+  padding: 14px; margin: 16px 0; text-align: left;
+}
+.info-row {
+  display: flex; justify-content: space-between; font-size: 13px;
+  padding: 4px 0; color: #94a3b8;
+}
+.info-row strong { color: #f8fafc; }
+.mono {
+  font-family: monospace; background: #1e293b; padding: 4px 6px;
+  border-radius: 6px; color: #38bdf8; word-break: break-all; font-size: 11px;
+}
+.countdown {
+  font-size: 32px; font-weight: 800; color: #10b981; margin: 12px 0 6px;
+}
+.success-banner {
+  background: #064e3b; border: 1px solid #059669; color: #34d399;
+  border-radius: 12px; padding: 14px; margin-top: 16px;
+  font-size: 13px; line-height: 1.5; text-align: center; font-weight: 600;
+}
+.notice {
+  background: #022c22; border: 1px dashed #10b981; border-radius: 10px;
+  padding: 12px; margin-top: 14px; color: #a7f3d0; font-size: 12px; line-height: 1.5;
+}
+.btn {
+  display: block; width: 100%; padding: 12px; border: none; border-radius: 8px;
+  background: #10b981; color: #022c22; font-size: 14px; font-weight: 700;
+  cursor: pointer; margin-top: 14px; text-decoration: none;
+}
+</style>
+<script>
+var timeLeft = 3;
+var timer = setInterval(function() {
+  timeLeft--;
+  var countEl = document.getElementById('count');
+  if (countEl) countEl.textContent = timeLeft;
+  if (timeLeft <= 0) {
+    clearInterval(timer);
+    document.getElementById('rebootingView').style.display = 'none';
+    document.getElementById('completedView').style.display = 'block';
+  }
+}, 1000);
+</script>
+</head>
+<body>
 <div class="card">
   <div class="badge">✅ SAVED TO FLASH</div>
-  <h2>Rebooting Node</h2>
-  <p>Connecting to Wi-Fi:<br><strong style="color:#fff;">)html" + newSsid + R"html(</strong></p>
-  <p>Sensor Module UUID:<br><span class="mono">)html" + newDevId + R"html(</span></p>
-  <div class="spinner"></div>
-  <p style="font-size:12px; color:#64748b; margin-top:16px;">Rebooting in 2 seconds to start streaming telemetry...</p>
-</div></body></html>)html";
+  <h2>Settings Saved!</h2>
+
+  <div class="info-box">
+    <div class="info-row">
+      <span>Target Wi-Fi:</span>
+      <strong>)html" + newSsid + R"html(</strong>
+    </div>
+    <div style="margin-top: 6px;">
+      <span style="font-size: 11px; color: #64748b; display: block; margin-bottom: 2px;">Sensor Module UUID:</span>
+      <span class="mono">)html" + newDevId + R"html(</span>
+    </div>
+  </div>
+
+  <!-- Animated Countdown Phase -->
+  <div id="rebootingView">
+    <p>ESP32 node is rebooting and joining your Wi-Fi...</p>
+    <div class="countdown" id="count">3</div>
+    <p style="font-size: 11px; color: #64748b;">Please wait while the node restarts.</p>
+  </div>
+
+  <!-- Clear Completion State (No infinite spinning) -->
+  <div id="completedView" style="display:none;">
+    <div class="success-banner">
+      🎉 Node has restarted successfully and is now connected to <strong>)html" + newSsid + R"html(</strong>!
+    </div>
+    <div class="notice">
+      👉 You can now <strong>close this setup screen</strong> and reconnect your phone to your regular Wi-Fi or mobile data.
+    </div>
+    <button type="button" class="btn" onclick="window.close()">Close Setup Window</button>
+  </div>
+</div>
+</body>
+</html>)html";
 
         portalServer.send(200, "text/html", responseHtml);
 
-        // Flush HTTP response cleanly before rebooting
+        // Keep serving HTTP for 2 seconds so the browser receives the full payload
         unsigned long flushStart = millis();
-        while (millis() - flushStart < 1500) {
+        while (millis() - flushStart < 2000) {
             portalServer.handleClient();
             delay(10);
         }

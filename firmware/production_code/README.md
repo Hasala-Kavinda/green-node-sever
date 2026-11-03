@@ -27,14 +27,16 @@ Each node includes an **Onboard Wi-Fi Captive Portal** with flash memory persist
    - Or, **press and hold the onboard BOOT button (GPIO 9) for 3 seconds** anytime to force the portal.
    - The onboard blue LED will flash rapidly (150ms).
 3. **Connect to Hotspot**:
-   - On your phone or laptop, join Wi-Fi network: **`GreenNode-Setup`** (Open network, no password).
+   - On your phone or laptop, join Wi-Fi network: **`GreenNode-Setup`**
+   - Password: **`greenNode3223`** (WPA2-PSK secured)
    - The setup portal will pop up automatically. If not, browse to **`http://192.168.4.1`**.
 4. **Save & Reboot**:
    - Select your greenhouse Wi-Fi network from the detected networks dropdown.
    - Enter your Wi-Fi password.
    - Paste the copied **Sensor Module UUID**.
    - (Optional) Set the backend host URL (defaults to `https://blue-circle.onrender.com` or set `http://192.168.x.x:4000` for local dev).
-   - Click **"💾 Save & Connect"**. The ESP32 saves to NVS and reboots within 2 seconds.
+   - Click **"💾 Save & Connect"**.
+   - The browser shows a 3-second countdown and a clear completion screen confirming the node has saved credentials and joined your Wi-Fi. You can then close the setup window.
 
 > [!TIP]
 > **Field Reconfiguration**: If you relocate a node or change the greenhouse router, simply hold the **BOOT button (GPIO 9) for 3 seconds** to re-open the setup portal without plugging into a computer!
