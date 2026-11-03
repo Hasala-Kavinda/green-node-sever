@@ -26,19 +26,20 @@
 // 1. USER CONFIGURATION & COMPILE-TIME FALLBACK DEFAULTS
 // ============================================================================
 // 💡 NOTE: Credentials load automatically from NVS flash memory at boot.
-// Hold the onboard BOOT button (GPIO 9) for 3 seconds at any time to launch
+// If the board has never been provisioned, it starts "GreenNode-Setup" immediately.
+// Hold the onboard BOOT button (GPIO 9) for 3 seconds at any time to re-launch
 // the "GreenNode-Setup" Wi-Fi Captive Portal.
 
-// --- Fallback Defaults (Used only on fresh chip before first Web Portal setup) ---
-const char* DEFAULT_WIFI_SSID                       = "Malith's A55";
-const char* DEFAULT_WIFI_PASSWORD                   = "malith26";
+// --- Fallback Defaults (Used only when NVS profile has not been saved) ---
+const char* DEFAULT_WIFI_SSID                       = "";
+const char* DEFAULT_WIFI_PASSWORD                   = "";
 const char* DEFAULT_BACKEND_BASE                    = "https://blue-circle.onrender.com";
-const char* DEFAULT_DEVICE_ID                       = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
+const char* DEFAULT_DEVICE_ID                       = "";
 
 // --- Active Runtime Configuration (Populated from NVS Preferences at boot) ---
 char configWifiSsid[64]                             = "";
 char configWifiPassword[64]                         = "";
-char configBackendBase[128]                         = "";
+char configBackendBase[128]                         = "https://blue-circle.onrender.com";
 char configDeviceId[64]                             = "";
 bool hasCustomNvsConfig                             = false;
 
@@ -90,7 +91,6 @@ const char* NVS_NAMESPACE                           = "greennode";
 DHT dht(PIN_DHT_DATA, DHTTYPE);
 BH1750 lightMeter;
 
-// Global state tracking (Notice: WebServer & DNSServer are NOT global, saving RAM 24/7!)
 bool bh1750Initialized = false;
 unsigned long lastTelemetryMillis = 0;
 int failedWifiAttempts = 0;
@@ -110,7 +110,6 @@ struct SensorTelemetry {
     char  timestamp[25];
 };
 
-// Forward declarations
 void startCaptivePortal();
 
 // ============================================================================
@@ -121,7 +120,7 @@ void loadConfiguration() {
     Preferences prefs;
     prefs.begin(NVS_NAMESPACE, true); // Read-only
 
-    hasCustomNvsConfig = prefs.isKey("ssid");
+    hasCustomNvsConfig = prefs.isKey("ssid") && prefs.isKey("dev_id");
     String sSsid       = prefs.getString("ssid", DEFAULT_WIFI_SSID);
     String sPass       = prefs.getString("pass", DEFAULT_WIFI_PASSWORD);
     String sBackend    = prefs.getString("backend", DEFAULT_BACKEND_BASE);
@@ -138,10 +137,12 @@ void loadConfiguration() {
     configBackendBase[sizeof(configBackendBase) - 1]   = '\0';
     configDeviceId[sizeof(configDeviceId) - 1]         = '\0';
 
-    Serial.printf("[NVS] Configuration loaded (%s):\n", hasCustomNvsConfig ? "Saved Profile" : "Compile-Time Default");
-    Serial.printf("      Wi-Fi SSID  : %s\n", configWifiSsid);
-    Serial.printf("      Device UUID : %s\n", configDeviceId);
-    Serial.printf("      Backend Host: %s\n", configBackendBase);
+    Serial.printf("[NVS] Configuration status: %s\n", hasCustomNvsConfig ? "SAVED PROFILE PRESENT" : "NOT PROVISIONED");
+    if (hasCustomNvsConfig) {
+        Serial.printf("      Wi-Fi SSID  : %s\n", configWifiSsid);
+        Serial.printf("      Device UUID : %s\n", configDeviceId);
+        Serial.printf("      Backend Host: %s\n", configBackendBase);
+    }
 }
 
 void saveConfiguration(const char* ssid, const char* pass, const char* backend, const char* devId) {
@@ -159,7 +160,6 @@ void saveConfiguration(const char* ssid, const char* pass, const char* backend, 
 // 4. ON-DEMAND CAPTIVE PORTAL (Zero RAM Footprint During Normal 24/7 Run)
 // ============================================================================
 
-// Stored in Flash (PROGMEM) so it never touches SRAM until portal is opened
 static const char PORTAL_HTML_HEAD[] PROGMEM = R"html(<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -230,12 +230,15 @@ void startCaptivePortal() {
     Serial.println("3. Portal auto-exits after 5 minutes of inactivity for 24/7 safety.");
     Serial.println("======================================================================\n");
 
-    // Pre-scan Wi-Fi networks ONCE before starting SoftAP so page loads instantaneously
+    // 1. Scan available Wi-Fi networks in STA mode FIRST so user can pick from dropdown
     WiFi.disconnect(true);
     delay(100);
-    WiFi.mode(WIFI_AP_STA);
+    WiFi.mode(WIFI_STA);
+    delay(100);
     Serial.println("[PORTAL] Scanning nearby Wi-Fi networks...");
-    int n = WiFi.scanNetworks();
+    int n = WiFi.scanNetworks(false, false);
+    Serial.printf("[PORTAL] Scan complete. Found %d networks.\n", n);
+
     String cachedNetworkOptions = "";
     for (int i = 0; i < n; i++) {
         String ssidName = WiFi.SSID(i);
@@ -245,14 +248,36 @@ void startCaptivePortal() {
     }
     WiFi.scanDelete(); // Free scan buffer from RAM immediately
 
-    // Launch SoftAP
-    IPAddress apIP(192, 168, 4, 1);
-    WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
-    WiFi.softAP(AP_SSID);
-    WiFi.setTxPower(WIFI_POWER_11dBm);
+    // 2. Switch cleanly to dedicated SoftAP mode (Channel 1, broadcast active)
+    WiFi.disconnect(true);
+    delay(100);
+    WiFi.mode(WIFI_AP);
+    delay(100);
 
-    // Local stack allocation: consumes 0 bytes when portal is not active!
+    IPAddress apIP(192, 168, 4, 1);
+    IPAddress netMsk(255, 255, 255, 0);
+    WiFi.softAPConfig(apIP, apIP, netMsk);
+
+    // Channel 1, open network, max 4 clients
+    bool apStarted = WiFi.softAP(AP_SSID, NULL, 1, 0, 4);
+    WiFi.setTxPower(WIFI_POWER_15dBm); // Solid RF power so phone easily discovers SSID
+
+    if (apStarted) {
+        Serial.printf("[PORTAL] ✅ SoftAP \"%s\" ACTIVE!\n", AP_SSID);
+        Serial.printf("         IP: %s | Channel: 1 | MAC: %s\n",
+                      WiFi.softAPIP().toString().c_str(), WiFi.softAPmacAddress().c_str());
+    } else {
+        Serial.println("[PORTAL] ❌ Initial SoftAP start failed, retrying...");
+        delay(300);
+        WiFi.softAP(AP_SSID);
+    }
+
+    // 3. Start Captive DNS Server (wildcard redirect to 192.168.4.1)
     DNSServer dnsServer;
+    dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
+    dnsServer.start(DNS_PORT, "*", apIP);
+
+    // 4. Start WebServer on port 80
     WebServer portalServer(80);
     unsigned long portalActivityTimer = millis();
 
@@ -321,7 +346,7 @@ void startCaptivePortal() {
         }
 
         if (newBackend.length() == 0) {
-            newBackend = DEFAULT_BACKEND_BASE;
+            newBackend = "https://blue-circle.onrender.com";
         }
         while (newBackend.endsWith("/")) {
             newBackend.remove(newBackend.length() - 1);
@@ -353,11 +378,10 @@ p { color: #94a3b8; font-size: 14px; line-height: 1.5; margin: 8px 0; }
 
         portalServer.send(200, "text/html", responseHtml);
 
-        // Flush HTTP response cleanly before rebooting so phone browser doesn't show "Connection Reset"
+        // Flush HTTP response cleanly before rebooting
         unsigned long flushStart = millis();
         while (millis() - flushStart < 1500) {
             portalServer.handleClient();
-            esp_task_wdt_reset();
             delay(10);
         }
         ESP.restart();
@@ -368,7 +392,6 @@ p { color: #94a3b8; font-size: 14px; line-height: 1.5; margin: 8px 0; }
         portalServer.send(302, "text/plain", "");
     });
 
-    dnsServer.start(DNS_PORT, "*", apIP);
     portalServer.begin();
 
     unsigned long lastBlink = 0;
@@ -376,12 +399,11 @@ p { color: #94a3b8; font-size: 14px; line-height: 1.5; margin: 8px 0; }
 
     // Run portal until user saves OR 5-minute safety timeout elapses
     while (millis() - portalActivityTimer < PORTAL_TIMEOUT_MS) {
-        esp_task_wdt_reset(); // Keep hardware watchdog fed
         dnsServer.processNextRequest();
         portalServer.handleClient();
 
-        // Fast 150ms blink indicates Setup Mode
-        if (millis() - lastBlink > 150) {
+        // Fast 200ms blink indicates Setup Mode
+        if (millis() - lastBlink > 200) {
             lastBlink = millis();
             ledState = !ledState;
             digitalWrite(PIN_STATUS_LED, ledState ? LOW : HIGH);
@@ -389,7 +411,7 @@ p { color: #94a3b8; font-size: 14px; line-height: 1.5; margin: 8px 0; }
         delay(5);
     }
 
-    Serial.println("[PORTAL] ⏱️ 5-minute inactivity timeout reached. Rebooting into normal 24/7 operation...");
+    Serial.println("[PORTAL] ⏱️ 5-minute inactivity timeout reached. Rebooting...");
     delay(200);
     ESP.restart();
 }
@@ -422,12 +444,12 @@ void checkBootButtonHold() {
     if (digitalRead(PIN_BOOT_BUTTON) == LOW) {
         unsigned long pressStart = millis();
         while (digitalRead(PIN_BOOT_BUTTON) == LOW) {
-            esp_task_wdt_reset();
             digitalWrite(PIN_STATUS_LED, LOW);  delay(50);
             digitalWrite(PIN_STATUS_LED, HIGH); delay(50);
             if (millis() - pressStart >= 3000) {
                 Serial.println("\n[SETUP] 🔘 BOOT button held for 3s! Launching Captive Portal...");
                 startCaptivePortal();
+                return;
             }
         }
     }
@@ -546,7 +568,6 @@ bool connectToWiFi() {
 
     unsigned long start = millis();
     while (WiFi.status() != WL_CONNECTED && (millis() - start < WIFI_TIMEOUT_MS)) {
-        esp_task_wdt_reset();
         digitalWrite(PIN_STATUS_LED, !digitalRead(PIN_STATUS_LED));
         delay(300);
         Serial.print(".");
@@ -564,12 +585,8 @@ bool connectToWiFi() {
         failedWifiAttempts++;
         Serial.printf("\n[WiFi] ❌ Connection timed out (Attempt %d).\n", failedWifiAttempts);
 
-        // 24/7 RECOVERY FIX:
-        // Only auto-open the Captive Portal on 3 failures if the chip has NEVER been configured via NVS.
-        // If it already has saved credentials, a router power outage shouldn't trap the node in AP mode;
-        // instead, reboot cleanly after 20 failed attempts (~5 mins) to clear the RF baseband.
-        if (!hasCustomNvsConfig && failedWifiAttempts >= 3) {
-            Serial.println("[WiFi] ⚠️ Default credentials failed 3 times. Launching Provisioning Portal...");
+        if (!hasCustomNvsConfig && failedWifiAttempts >= 2) {
+            Serial.println("[WiFi] ⚠️ Unconfigured node failed to connect. Opening Provisioning Portal...");
             startCaptivePortal();
         } else if (failedWifiAttempts >= 20) {
             Serial.println("[WiFi] 🔄 Router unreachable for 5 minutes. Rebooting RF stack cleanly...");
@@ -607,7 +624,6 @@ void sendTelemetryHttp(const SensorTelemetry& data) {
         return;
     }
 
-    // 24/7 Heap Safety Guard: Ensure sufficient contiguous RAM before TLS handshake
     if (ESP.getFreeHeap() < MIN_SAFE_FREE_HEAP) {
         Serial.printf("[SYS] ⚠️ Low heap detected (%u bytes). Performing preventive reboot...\n", ESP.getFreeHeap());
         delay(100);
@@ -651,13 +667,12 @@ void sendTelemetryHttp(const SensorTelemetry& data) {
     http.setReuse(false);
     http.setTimeout(HTTP_TIMEOUT_MS);
 
-    // Persistent static clients avoid repeated heap churn over months of 24/7 operation
     static WiFiClientSecure secureClient;
     static WiFiClient plainClient;
 
     int httpCode = 0;
     if (isHttps) {
-        secureClient.setInsecure(); // Skip certificate bundle to save flash & RAM
+        secureClient.setInsecure();
         secureClient.setTimeout(HTTP_TIMEOUT_MS / 1000);
         if (!http.begin(secureClient, targetUrl)) {
             Serial.println("[HTTP] ❌ Unable to initialize HTTPS client.");
@@ -702,27 +717,12 @@ void sendTelemetryHttp(const SensorTelemetry& data) {
 
 void setup() {
     Serial.begin(115200);
-
-    // Allow time for host USB CDC enumeration
     delay(1500);
 
     unsigned long startSerialWait = millis();
     while (!Serial && (millis() - startSerialWait < 3000)) {
         delay(10);
     }
-
-    // Initialize Hardware Watchdog Timer for 24/7 unattended operation
-#if ESP_IDF_VERSION_MAJOR >= 5
-    esp_task_wdt_config_t wdt_config = {
-        .timeout_ms = WDT_TIMEOUT_SEC * 1000,
-        .idle_core_mask = (1 << 0),
-        .trigger_panic = true
-    };
-    esp_task_wdt_reconfigure(&wdt_config);
-#else
-    esp_task_wdt_init(WDT_TIMEOUT_SEC, true);
-#endif
-    esp_task_wdt_add(NULL);
 
     // Initialize Onboard Status LED & BOOT Button
     pinMode(PIN_STATUS_LED, OUTPUT);
@@ -741,9 +741,8 @@ void setup() {
     // Initialize DHT22
     dht.begin();
 
-    // Initialize BH1750 I2C with 1 second bus timeout to prevent I2C lockups
+    // Initialize BH1750 I2C
     Wire.begin(PIN_BH1750_SDA, PIN_BH1750_SCL);
-    Wire.setTimeOut(1000);
     bh1750Initialized = lightMeter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE);
 
     Serial.println("\n======================================================================");
@@ -765,15 +764,15 @@ void setup() {
                   (MD0869_CAL_A == 0.0f && MD0869_CAL_B == 0.0f) ? "(Uncalibrated - Factory pass-through)" : "(Active)");
     Serial.println("======================================================================\n");
 
-    // Load active configuration from NVS flash memory first so Portal fields are pre-filled
+    // Load active configuration from NVS flash memory
     loadConfiguration();
 
     // Check if BOOT button is held at boot to force Captive Portal
     checkBootButtonHold();
 
-    // If no UUID or SSID is configured, automatically open Captive Portal
-    if (strlen(configWifiSsid) == 0 || strlen(configDeviceId) == 0) {
-        Serial.println("[SETUP] Node is unconfigured! Launching Captive Portal...");
+    // If node has NEVER been configured via NVS, launch Captive Portal IMMEDIATELY!
+    if (!hasCustomNvsConfig || strlen(configWifiSsid) == 0 || strlen(configDeviceId) == 0) {
+        Serial.println("[SETUP] 🚀 Unconfigured node detected! Launching \"GreenNode-Setup\" Portal immediately...");
         startCaptivePortal();
     }
 
@@ -792,15 +791,12 @@ void setup() {
 // ============================================================================
 
 void loop() {
-    // 1. Feed the Hardware Watchdog Timer on every iteration
-    esp_task_wdt_reset();
-
-    // 2. Monitor BOOT button during normal runtime: holding for 3s opens setup portal
+    // 1. Monitor BOOT button during normal runtime: holding for 3s opens setup portal
     checkBootButtonHold();
 
     unsigned long currentMillis = millis();
 
-    // 3. Non-blocking drift-free interval scheduler
+    // 2. Non-blocking drift-free interval scheduler
     if (currentMillis - lastTelemetryMillis >= REFRESH_INTERVAL_MS) {
         lastTelemetryMillis = currentMillis;
 
