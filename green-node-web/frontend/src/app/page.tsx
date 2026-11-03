@@ -86,19 +86,89 @@ export default function DashboardPage() {
 
   // Hierarchy State
   const [companies, setCompanies] = useState<Company[]>([]);
-  const [selectedCompanyId, setSelectedCompanyId] = useState<string>("all");
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("green_node_selected_company") || "all";
+    }
+    return "all";
+  });
   const [greenhouses, setGreenhouses] = useState<Greenhouse[]>([]);
-  const [activeGreenhouseId, setActiveGreenhouseId] = useState<string>("greenhouse-01");
-  const [activeGreenhouse, setActiveGreenhouse] = useState<Greenhouse | null>(null);
-  const [greenhouseDevices, setGreenhouseDevices] = useState<Device[]>([]);
-  const [allDevices, setAllDevices] = useState<Device[]>([]);
-  const [deviceViewFilter, setDeviceViewFilter] = useState<"all" | "current">("all");
+  const [activeGreenhouseId, setActiveGreenhouseId] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("green_node_active_greenhouse") || "";
+    }
+    return "";
+  });
+  const [activeGreenhouse, setActiveGreenhouse] = useState<Greenhouse | null>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const cached = localStorage.getItem("green_node_cached_greenhouse");
+        if (cached) return JSON.parse(cached);
+      } catch {}
+    }
+    return null;
+  });
+  const [greenhouseDevices, setGreenhouseDevices] = useState<Device[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const cached = localStorage.getItem("green_node_cached_gh_devices");
+        if (cached) return JSON.parse(cached);
+      } catch {}
+    }
+    return [];
+  });
+  const [allDevices, setAllDevices] = useState<Device[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const cached = localStorage.getItem("green_node_cached_devices");
+        if (cached) return JSON.parse(cached);
+      } catch {}
+    }
+    return [];
+  });
+  const [deviceViewFilter, setDeviceViewFilter] = useState<"all" | "current">(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("green_node_device_filter");
+      if (saved === "all" || saved === "current") return saved;
+    }
+    return "all";
+  });
   const [copiedDeviceId, setCopiedDeviceId] = useState<string | null>(null);
 
   // Active Device Drilldown (Optional focus on a specific node within greenhouse)
-  const [focusedDeviceId, setFocusedDeviceId] = useState<string | null>(null);
-  const [focusedLatestReading, setFocusedLatestReading] = useState<Reading | null>(null);
-  const [recentReadings, setRecentReadings] = useState<Reading[]>([]);
+  const [focusedDeviceId, setFocusedDeviceId] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("green_node_focused_device") || null;
+    }
+    return null;
+  });
+  const [focusedLatestReading, setFocusedLatestReading] = useState<Reading | null>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const savedDev = localStorage.getItem("green_node_focused_device");
+        if (savedDev) {
+          const cached = localStorage.getItem(`green_node_latest_${savedDev}`);
+          if (cached) return JSON.parse(cached);
+        }
+      } catch {}
+    }
+    return null;
+  });
+  const [recentReadings, setRecentReadings] = useState<Reading[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const savedDev = localStorage.getItem("green_node_focused_device");
+        if (savedDev) {
+          const cached = localStorage.getItem(`green_node_readings_${savedDev}`);
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+          }
+        }
+      } catch {}
+    }
+    return [];
+  });
   const [statsData, setStatsData] = useState<any>(null);
 
   // System & Connection State
@@ -161,37 +231,6 @@ export default function DashboardPage() {
     }
   }, [isAuthenticated, isLoading, router]);
 
-  // Restore selections and cached telemetry immediately from localStorage
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const savedCompany = localStorage.getItem("green_node_selected_company");
-    if (savedCompany) setSelectedCompanyId(savedCompany);
-
-    const savedGh = localStorage.getItem("green_node_active_greenhouse");
-    if (savedGh) setActiveGreenhouseId(savedGh);
-
-    const savedDev = localStorage.getItem("green_node_focused_device");
-    if (savedDev) {
-      setFocusedDeviceId(savedDev);
-      try {
-        const cachedReadings = localStorage.getItem(`green_node_readings_${savedDev}`);
-        if (cachedReadings) {
-          const parsed = JSON.parse(cachedReadings);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setRecentReadings(parsed);
-            setFocusedLatestReading(parsed[0]);
-          }
-        }
-      } catch {}
-    }
-
-    const savedFilter = localStorage.getItem("green_node_device_filter") as "all" | "current";
-    if (savedFilter === "all" || savedFilter === "current") {
-      setDeviceViewFilter(savedFilter);
-    }
-  }, []);
-
   // Initial Data Load
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -212,7 +251,12 @@ export default function DashboardPage() {
       const [comps, ghs, devs] = await Promise.all([fetchCompanies(), fetchGreenhouses(), fetchDevices()]);
       setCompanies(comps);
       setGreenhouses(ghs);
-      setAllDevices(devs);
+      if (devs && devs.length > 0) {
+        setAllDevices(devs);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("green_node_cached_devices", JSON.stringify(devs));
+        }
+      }
 
       if (comps.length > 0 && !newGhCompanyId) {
         setNewGhCompanyId(comps[0].companyId);
@@ -220,18 +264,12 @@ export default function DashboardPage() {
 
       if (ghs.length > 0) {
         const savedGh = typeof window !== "undefined" ? localStorage.getItem("green_node_active_greenhouse") : null;
-        const targetGhId = savedGh || activeGreenhouseId;
-        const found = ghs.find((g) => g.greenhouseId === targetGhId);
-        if (found) {
-          setActiveGreenhouseId(found.greenhouseId);
-        } else {
-          const ghWithDevs = ghs.find((g) => devs.some((d) => d.greenhouseId === g.greenhouseId));
-          const chosenGh = ghWithDevs ? ghWithDevs.greenhouseId : ghs[0].greenhouseId;
-          setActiveGreenhouseId(chosenGh);
-          if (typeof window !== "undefined") {
-            localStorage.setItem("green_node_active_greenhouse", chosenGh);
-          }
+        const targetGhId = savedGh && ghs.some((g) => g.greenhouseId === savedGh) ? savedGh : ghs[0].greenhouseId;
+        setActiveGreenhouseId(targetGhId);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("green_node_active_greenhouse", targetGhId);
         }
+        loadGreenhouseData(targetGhId);
       }
     } catch {
       // Backend may be sleeping
@@ -252,23 +290,33 @@ export default function DashboardPage() {
   }, [activeGreenhouseId, isAuthenticated]);
 
   const loadGreenhouseData = async (ghId: string) => {
+    if (!ghId) return;
     try {
       const [overview, devs] = await Promise.all([
         fetchGreenhouseOverview(ghId),
         fetchDevices(),
       ]);
-      setAllDevices(devs);
+      if (devs && devs.length > 0) {
+        setAllDevices(devs);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("green_node_cached_devices", JSON.stringify(devs));
+        }
+      }
       if (overview) {
         setActiveGreenhouse(overview);
         const ghDevs = overview.devices || [];
         setGreenhouseDevices(ghDevs);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("green_node_cached_greenhouse", JSON.stringify(overview));
+          localStorage.setItem("green_node_cached_gh_devices", JSON.stringify(ghDevs));
+        }
 
         // Preserve current focused device or restore saved device if valid
         const savedDevId = typeof window !== "undefined" ? localStorage.getItem("green_node_focused_device") : null;
         const targetId = focusedDeviceId || savedDevId;
 
         const devInGh = ghDevs.find((d) => d.deviceId === targetId);
-        const devInAll = devs.find((d) => d.deviceId === targetId);
+        const devInAll = devs?.find((d) => d.deviceId === targetId);
 
         let chosenDeviceId: string | null = null;
         if (devInGh) {
@@ -277,7 +325,7 @@ export default function DashboardPage() {
           chosenDeviceId = ghDevs[0].deviceId;
         } else if (devInAll) {
           chosenDeviceId = devInAll.deviceId;
-        } else if (devs.length > 0) {
+        } else if (devs && devs.length > 0) {
           chosenDeviceId = devs[0].deviceId;
         }
 
@@ -287,10 +335,6 @@ export default function DashboardPage() {
             localStorage.setItem("green_node_focused_device", chosenDeviceId);
           }
           await loadFocusedNodeData(chosenDeviceId);
-        } else {
-          setFocusedDeviceId(null);
-          setFocusedLatestReading(null);
-          setRecentReadings([]);
         }
       }
     } catch (err) {
@@ -299,6 +343,7 @@ export default function DashboardPage() {
   };
 
   const loadFocusedNodeData = async (devId: string) => {
+    if (!devId) return;
     try {
       const [reading, stats, readings] = await Promise.all([
         fetchLatestReading(devId),
@@ -320,13 +365,15 @@ export default function DashboardPage() {
           localStorage.setItem(`green_node_readings_${devId}`, JSON.stringify(readings));
         }
       } else if (effectiveLatest) {
-        setRecentReadings([effectiveLatest]);
+        setRecentReadings((prev) => (prev.length > 0 ? prev : [effectiveLatest]));
         if (typeof window !== "undefined") {
           localStorage.setItem(`green_node_readings_${devId}`, JSON.stringify([effectiveLatest]));
         }
       }
 
-      setStatsData(stats);
+      if (stats) {
+        setStatsData(stats);
+      }
     } catch (err) {
       console.error("Error loading node telemetry:", err);
     }
@@ -726,7 +773,32 @@ export default function DashboardPage() {
     return null;
   }
 
-  const focusedDevice = greenhouseDevices.find((d) => d.deviceId === focusedDeviceId);
+  const focusedDevice =
+    greenhouseDevices.find((d) => d.deviceId === focusedDeviceId) ||
+    allDevices.find((d) => d.deviceId === focusedDeviceId) ||
+    (focusedDeviceId
+      ? {
+          deviceId: focusedDeviceId,
+          name: focusedLatestReading?.deviceName || "Module 01",
+          greenhouseId: focusedLatestReading?.greenhouseId || activeGreenhouseId,
+          greenhouseName: focusedLatestReading?.greenhouseName || activeGreenhouse?.name || "Greenhouse",
+          plant: focusedLatestReading?.plant || activeGreenhouse?.plant || "Crops",
+          location: focusedLatestReading?.deviceLocation || "Zone 1",
+          isOnline: true,
+          status: "online" as const,
+          latestReading: focusedLatestReading
+            ? {
+                temperature: focusedLatestReading.temperature,
+                humidity: focusedLatestReading.humidity,
+                soilMoisture: focusedLatestReading.soilMoisture,
+                light: focusedLatestReading.light,
+                espTemperature: focusedLatestReading.espTemperature,
+                wifiSsid: focusedLatestReading.wifiSsid,
+                timestamp: focusedLatestReading.timestamp,
+              }
+            : undefined,
+        }
+      : null);
 
   return (
     <div className="min-h-screen bg-[#0A0A0C] text-[#F5F5F7] flex flex-col font-sans">
@@ -1092,7 +1164,7 @@ export default function DashboardPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {displayed.map((dev) => {
                   const isFocused = dev.deviceId === focusedDeviceId;
-                  const r = dev.latestReading;
+                  const r = dev.latestReading || (isFocused ? focusedLatestReading : undefined);
                   const probeLabel =
                     dev.sensorType === "md0869"
                       ? "All Modules + MD0869"

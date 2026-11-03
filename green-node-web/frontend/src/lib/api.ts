@@ -271,7 +271,7 @@ export async function fetchReadings(options: {
     const res = await fetch(`${getBackendUrl()}/api/readings${queryStr}`);
     if (!res.ok) return [];
     const json = await res.json();
-    return json.data || [];
+    return json.items || json.data || [];
   } catch {
     return [];
   }
