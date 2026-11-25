@@ -12,6 +12,7 @@ import { connectDatabase, disconnectDatabase } from './config/database.js';
 import { initWebSocketServer } from './services/websocket.service.js';
 import readingRoutes from './routes/reading.routes.js';
 import healthRoutes from './routes/health.routes.js';
+import hubCommandRoutes from './routes/hubCommand.routes.js';
 import { swaggerDocument } from './swagger/openapi.js';
 
 function getLocalIpAddresses(): string[] {
@@ -83,6 +84,7 @@ app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
 // API Routes
 app.use('/api', readingRoutes);
 app.use('/api', healthRoutes);
+app.use('/api', hubCommandRoutes);
 
 // Root route: Serves embedded dashboard or outputs JSON status linking to Next.js frontend
 app.get('/', (_req, res) => {

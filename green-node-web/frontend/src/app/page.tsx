@@ -29,7 +29,9 @@ import {
   Device,
   Reading,
   SystemLog,
+  HubCommandRecord,
 } from "@/lib/api";
+import HubCommandPanel from "@/components/HubCommandPanel";
 import {
   Leaf,
   Cpu,
@@ -215,6 +217,11 @@ export default function DashboardPage() {
   const [apiUrlInput, setApiUrlInput] = useState<string>("");
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [copiedUuid, setCopiedUuid] = useState<boolean>(false);
+  const [liveHubCmdUpdate, setLiveHubCmdUpdate] = useState<{
+    seq: number;
+    record?: HubCommandRecord;
+    cleared?: boolean;
+  } | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
   const focusedDeviceIdRef = useRef<string | null>(focusedDeviceId);
@@ -464,6 +471,19 @@ export default function DashboardPage() {
               setGreenhouseDevices((prev) => prev.map(updateHb));
               setAllDevices((prev) => prev.map(updateHb));
             }
+          } else if (
+            (payload.event === "hub_command_queued" || payload.event === "hub_command_updated") &&
+            payload.data
+          ) {
+            setLiveHubCmdUpdate((prev) => ({
+              seq: (prev?.seq || 0) + 1,
+              record: payload.data,
+            }));
+          } else if (payload.event === "hub_commands_cleared") {
+            setLiveHubCmdUpdate((prev) => ({
+              seq: (prev?.seq || 0) + 1,
+              cleared: true,
+            }));
           }
         } catch {
           // ignore parsing error
@@ -804,8 +824,18 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-[#0A0A0C] text-[#F5F5F7] flex flex-col font-sans">
       {/* Feedback Toast */}
       {feedbackMsg && (
-        <div className="fixed top-5 right-5 z-50 bg-[#141417] border border-[#282830] text-emerald-400 px-4 py-2.5 rounded-xl text-xs font-medium shadow-2xl flex items-center space-x-2 animate-in fade-in duration-200">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+        <div
+          className={`fixed top-5 right-5 z-50 bg-[#141417] border px-4 py-2.5 rounded-xl text-xs font-medium shadow-2xl flex items-center space-x-2 animate-in fade-in duration-200 ${
+            feedbackMsg.type === "error"
+              ? "border-rose-500/40 text-rose-400"
+              : "border-[#282830] text-emerald-400"
+          }`}
+        >
+          {feedbackMsg.type === "error" ? (
+            <XCircle className="w-4 h-4 text-rose-400 shrink-0" />
+          ) : (
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          )}
           <span>{feedbackMsg.text}</span>
         </div>
       )}
@@ -1327,6 +1357,17 @@ export default function DashboardPage() {
             );
           })()}
         </section>
+
+        {/* HUB CLI & ACTUATOR CONTROL PANEL */}
+        <HubCommandPanel
+          devices={allDevices}
+          focusedDeviceId={focusedDeviceId}
+          liveCommandUpdate={liveHubCmdUpdate}
+          onNotify={(msg) => {
+            setFeedbackMsg(msg);
+            setTimeout(() => setFeedbackMsg(null), 4000);
+          }}
+        />
 
         {/* FOCUSED SENSOR MODULE TELEMETRY TIMELINE */}
         {focusedDevice && (

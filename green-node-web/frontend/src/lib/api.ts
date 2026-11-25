@@ -342,3 +342,75 @@ export async function deleteDevice(deviceId: string): Promise<boolean> {
   }
   return true;
 }
+
+// --------------------------------------------------------------------------
+// Hub CLI & Actuator Command APIs
+// --------------------------------------------------------------------------
+
+export type HubCommandType = "cmd" | "pair" | "cancel" | "cfg" | "map" | "maps";
+export type HubCommandStatus = "pending" | "dispatched" | "executed" | "failed";
+
+export interface HubCommandRecord {
+  _id?: string;
+  commandId: string;
+  hubId: string;
+  type: HubCommandType;
+  cliString: string;
+  payload: Record<string, any>;
+  status: HubCommandStatus;
+  resultMessage?: string;
+  details?: Record<string, any>;
+  requestedBy?: string;
+  dispatchedAt?: string;
+  executedAt?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface HubStatusInfo {
+  isHubPollingActive: boolean;
+  lastPollAt: string | null;
+  lastHubId: string | null;
+  pendingCount: number;
+  lastMapsDetails: Record<string, any> | null;
+}
+
+export type CreateHubCommandPayload =
+  | { type: "cmd"; deviceId: string; action: "on" | "off"; durationS?: number; hubId?: string }
+  | { type: "pair"; kind: "sensor" | "irrigation" | "actuator"; name: string; seconds?: number; hubId?: string }
+  | { type: "cancel"; hubId?: string }
+  | { type: "cfg"; deviceId: string; intervalS: number; hubId?: string }
+  | { type: "map"; snId: string; uuid: string; hubId?: string }
+  | { type: "maps"; hubId?: string };
+
+export async function sendHubCommand(payload: CreateHubCommandPayload): Promise<HubCommandRecord> {
+  const res = await fetch(`${getBackendUrl()}/api/hub/commands`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(json.error || "Failed to queue hub command");
+  }
+  return json.data;
+}
+
+export async function fetchHubCommands(limit = 25): Promise<HubCommandRecord[]> {
+  const res = await fetch(`${getBackendUrl()}/api/hub/commands?limit=${limit}`);
+  if (!res.ok) return [];
+  const json = await res.json();
+  return json.data || [];
+}
+
+export async function fetchHubStatus(): Promise<HubStatusInfo | null> {
+  const res = await fetch(`${getBackendUrl()}/api/hub/status`);
+  if (!res.ok) return null;
+  const json = await res.json();
+  return json.data || null;
+}
+
+export async function clearHubCommands(): Promise<boolean> {
+  const res = await fetch(`${getBackendUrl()}/api/hub/commands`, { method: "DELETE" });
+  return res.ok;
+}
