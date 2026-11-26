@@ -1301,7 +1301,7 @@ export default function DashboardPage() {
                 <div
                   key={dev.deviceId}
                   onClick={() => handleSelectModule(dev)}
-                  className={`bg-[#141417] border rounded-2xl p-6 cursor-pointer transition relative group ${
+                  className={`bg-[#141417] border rounded-2xl p-4 cursor-pointer transition relative group ${
                     isFocused
                       ? isActuator
                         ? "border-cyan-500 shadow-xl shadow-cyan-500/15 ring-1 ring-cyan-500/40"
@@ -1310,18 +1310,18 @@ export default function DashboardPage() {
                   }`}
                 >
                   {/* Node Header */}
-                  <div className="flex items-start justify-between mb-3.5">
+                  <div className="flex items-start justify-between mb-3">
                     <div className="flex-1 pr-2">
-                      <div className="flex items-center space-x-2.5 flex-wrap gap-y-1">
+                      <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                         <span
-                          className={`text-lg font-bold text-white transition ${
+                          className={`text-base font-bold text-white transition ${
                             isActuator ? "group-hover:text-cyan-400" : "group-hover:text-emerald-400"
                           }`}
                         >
                           {dev.name}
                         </span>
                         <span
-                          className={`text-xs px-2.5 py-0.5 rounded uppercase font-bold tracking-wider bg-[#202028] border ${
+                          className={`text-xs px-2 py-0.5 rounded uppercase font-bold tracking-wider bg-[#202028] border ${
                             isActuator
                               ? "text-cyan-300 border-cyan-500/20"
                               : "text-emerald-400 border-emerald-500/20"
@@ -1331,7 +1331,7 @@ export default function DashboardPage() {
                         </span>
                       </div>
 
-                      <div className="text-sm text-[#A1A1A6] mt-1.5 flex flex-wrap items-center gap-2">
+                      <div className="text-xs text-[#A1A1A6] mt-1 flex flex-wrap items-center gap-1.5">
                         <span className="text-white font-medium">🏛️ {dev.greenhouseName || "Greenhouse"}</span>
                         <span>•</span>
                         <span className="text-emerald-400 font-medium">🌱 {dev.plant || "Crop"}</span>
@@ -1341,9 +1341,9 @@ export default function DashboardPage() {
                     </div>
 
                     {/* Status & Delete */}
-                    <div className="flex items-center space-x-2 shrink-0">
+                    <div className="flex items-center space-x-1.5 shrink-0">
                       <div
-                        className={`flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-semibold border ${
+                        className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${
                           dev.isOnline
                             ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
                             : r
@@ -1376,43 +1376,43 @@ export default function DashboardPage() {
 
                   {/* Metrics or Actuator Details */}
                   {isActuator ? (
-                    <div className="grid grid-cols-2 gap-3 max-w-md mx-auto pt-3 border-t border-[#202026]">
-                      <div className="aspect-square bg-[#18181D] rounded-xl p-4 flex flex-col items-center justify-center text-center gap-1.5">
-                        <span className="text-sm text-[#8E8E93] font-medium block">Actuator Type</span>
-                        <span className="text-xl font-bold text-cyan-300 capitalize">
+                    <div className="grid grid-cols-2 gap-2.5 max-w-[260px] mx-auto pt-2.5 border-t border-[#202026]">
+                      <div className="aspect-square bg-[#18181D] rounded-xl p-2.5 flex flex-col items-center justify-center text-center gap-1">
+                        <span className="text-xs text-[#8E8E93] font-medium block">Actuator Type</span>
+                        <span className="text-base font-bold text-cyan-300 capitalize">
                           {actuatorMeta.actuatorType}
                         </span>
                       </div>
-                      <div className="aspect-square bg-[#18181D] rounded-xl p-4 flex flex-col items-center justify-center text-center gap-1.5">
-                        <span className="text-sm text-[#8E8E93] font-medium block">Sub-Node ID</span>
-                        <span className="text-xl font-bold font-mono text-amber-300">
+                      <div className="aspect-square bg-[#18181D] rounded-xl p-2.5 flex flex-col items-center justify-center text-center gap-1">
+                        <span className="text-xs text-[#8E8E93] font-medium block">Sub-Node ID</span>
+                        <span className="text-base font-bold font-mono text-amber-300">
                           {actuatorMeta.subNodeId || "Unmapped"}
                         </span>
                       </div>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-2 gap-3 max-w-md mx-auto pt-3 border-t border-[#202026]">
-                      <div className="aspect-square bg-[#18181D] rounded-xl p-4 flex flex-col items-center justify-center text-center gap-1.5">
-                        <span className="text-sm text-[#8E8E93] font-medium block">Temp</span>
-                        <span className="text-2xl font-bold text-emerald-400">
+                    <div className="grid grid-cols-2 gap-2.5 max-w-[260px] mx-auto pt-2.5 border-t border-[#202026]">
+                      <div className="aspect-square bg-[#18181D] rounded-xl p-2.5 flex flex-col items-center justify-center text-center gap-1">
+                        <span className="text-xs text-[#8E8E93] font-medium block">Temp</span>
+                        <span className="text-lg font-bold text-emerald-400">
                           {r?.temperature !== undefined ? `${r.temperature.toFixed(1)}°C` : "--"}
                         </span>
                       </div>
-                      <div className="aspect-square bg-[#18181D] rounded-xl p-4 flex flex-col items-center justify-center text-center gap-1.5">
-                        <span className="text-sm text-[#8E8E93] font-medium block">Humidity</span>
-                        <span className="text-2xl font-bold text-cyan-400">
+                      <div className="aspect-square bg-[#18181D] rounded-xl p-2.5 flex flex-col items-center justify-center text-center gap-1">
+                        <span className="text-xs text-[#8E8E93] font-medium block">Humidity</span>
+                        <span className="text-lg font-bold text-cyan-400">
                           {r?.humidity !== undefined ? `${r.humidity.toFixed(1)}%` : "--"}
                         </span>
                       </div>
-                      <div className="aspect-square bg-[#18181D] rounded-xl p-4 flex flex-col items-center justify-center text-center gap-1.5">
-                        <span className="text-sm text-[#8E8E93] font-medium block">Soil</span>
-                        <span className="text-2xl font-bold text-purple-400">
+                      <div className="aspect-square bg-[#18181D] rounded-xl p-2.5 flex flex-col items-center justify-center text-center gap-1">
+                        <span className="text-xs text-[#8E8E93] font-medium block">Soil</span>
+                        <span className="text-lg font-bold text-purple-400">
                           {r?.soilMoisture !== undefined ? `${r.soilMoisture.toFixed(1)}%` : "--"}
                         </span>
                       </div>
-                      <div className="aspect-square bg-[#18181D] rounded-xl p-4 flex flex-col items-center justify-center text-center gap-1.5">
-                        <span className="text-sm text-[#8E8E93] font-medium block">Light</span>
-                        <span className="text-2xl font-bold text-amber-400">
+                      <div className="aspect-square bg-[#18181D] rounded-xl p-2.5 flex flex-col items-center justify-center text-center gap-1">
+                        <span className="text-xs text-[#8E8E93] font-medium block">Light</span>
+                        <span className="text-lg font-bold text-amber-400">
                           {r?.light !== undefined ? `${r.light.toFixed(0)} lx` : "--"}
                         </span>
                       </div>
@@ -1420,13 +1420,13 @@ export default function DashboardPage() {
                   )}
 
                   {/* Prominent Device UUID Box with 1-Click Copy */}
-                  <div className="bg-[#0B0B0E] border border-[#24242C] rounded-xl p-3 my-4 flex items-center justify-between gap-2">
+                  <div className="bg-[#0B0B0E] border border-[#24242C] rounded-xl p-2.5 my-3 flex items-center justify-between gap-2">
                     <div className="overflow-hidden">
                       <span className="text-xs uppercase font-bold text-[#8E8E93] tracking-wider block">
                         Provisioning UUID
                       </span>
                       <span
-                        className={`text-sm font-mono font-bold select-all break-all ${
+                        className={`text-xs font-mono font-bold select-all break-all ${
                           isActuator ? "text-cyan-300" : "text-emerald-400"
                         }`}
                       >
@@ -1440,16 +1440,16 @@ export default function DashboardPage() {
                         handleCopyUuid(dev.deviceId);
                       }}
                       title="Copy UUID to paste into ESP captive portal"
-                      className="px-3 py-2 bg-[#1C1C22] hover:bg-emerald-500 hover:text-white text-[#C7C7CC] rounded-lg border border-[#303038] text-sm font-semibold shrink-0 transition flex items-center space-x-1.5"
+                      className="px-2.5 py-1.5 bg-[#1C1C22] hover:bg-emerald-500 hover:text-white text-[#C7C7CC] rounded-lg border border-[#303038] text-xs font-semibold shrink-0 transition flex items-center space-x-1"
                     >
                       {copiedDeviceId === dev.deviceId ? (
                         <>
-                          <Check className="w-4 h-4 text-emerald-300" />
+                          <Check className="w-3.5 h-3.5 text-emerald-300" />
                           <span className="text-emerald-300 font-bold">Copied!</span>
                         </>
                       ) : (
                         <>
-                          <Copy className="w-4 h-4" />
+                          <Copy className="w-3.5 h-3.5" />
                           <span>Copy UUID</span>
                         </>
                       )}
@@ -1457,7 +1457,7 @@ export default function DashboardPage() {
                   </div>
 
                   {/* Footer with Wi-Fi & Action */}
-                  <div className="mt-3 flex items-center justify-between text-xs text-[#6E6E73] pt-2.5 border-t border-[#1C1C22]">
+                  <div className="mt-2.5 flex items-center justify-between text-xs text-[#6E6E73] pt-2 border-t border-[#1C1C22]">
                     <span className="flex items-center space-x-1.5 truncate max-w-[200px]">
                       <Wifi className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
                       <span className="truncate">{r?.wifiSsid || dev.wifiSsid || "Wi-Fi Ready"}</span>
@@ -1510,7 +1510,7 @@ export default function DashboardPage() {
                   </div>
 
                   {/* Right Column: Selected sensor or actuator details */}
-                  <div className="lg:col-span-8">
+                  <div className="lg:col-span-4">
                     {selectedModule ? renderModuleCard(selectedModule) : null}
                   </div>
                 </div>
