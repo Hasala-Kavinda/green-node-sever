@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import {
@@ -1032,239 +1033,58 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Top Navbar with Company -> Greenhouse Hierarchy */}
-      <header className="border-b border-[#202026] bg-[#0E0E12]/80 backdrop-blur-xl sticky top-0 z-30 px-6 py-3.5">
-        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
-          {/* Brand */}
-          <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center text-white shadow-lg shadow-emerald-500/20 ring-1 ring-white/10">
-              <Leaf className="w-5 h-5" />
-            </div>
-            <div>
-              <h1 className="text-base font-semibold tracking-tight text-white flex items-center space-x-2">
-                <span>Green Node</span>
-                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  Cluster Edition
-                </span>
+      {/* Top Glass Navbar */}
+      <header className="sticky top-0 z-30 px-4 sm:px-6 pt-3 pb-1 pointer-events-none">
+        <div className="pointer-events-auto max-w-7xl mx-auto rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.07] to-white/[0.02] bg-[#0E0E12]/65 backdrop-blur-2xl shadow-[0_12px_40px_rgba(0,0,0,0.5)] ring-1 ring-inset ring-white/[0.06] px-5 py-3">
+          <div className="flex items-center justify-between gap-3">
+            {/* Section 1: Brand Title */}
+            <div className="flex items-center">
+              <h1 className="text-base sm:text-lg font-semibold tracking-tight text-white">
+                Green Node
               </h1>
-              <p className="text-xs text-[#8E8E93] flex items-center space-x-1.5">
-                <Building2 className="w-3 h-3 text-emerald-400" />
-                <span>{activeGreenhouse?.companyName || "Company"} ({activeGreenhouse?.companyLocation || "Location"})</span>
-                <span>•</span>
-                <Warehouse className="w-3 h-3 text-teal-400" />
-                <span className="text-white font-medium">{activeGreenhouse?.name || "Greenhouse"}</span>
-                <span>•</span>
-                <Sprout className="w-3 h-3 text-emerald-400" />
-                <span className="text-emerald-400 font-semibold">{activeGreenhouse?.plant || "Crops"}</span>
-              </p>
             </div>
-          </div>
 
-          {/* Hierarchy Selectors & Navigation */}
-          <div className="flex flex-wrap items-center gap-2.5">
-            {/* 1. Company Selector */}
-            <div className="flex items-center space-x-1.5 bg-[#141417] border border-[#282830] rounded-lg px-2.5 py-1 text-xs text-[#A1A1A6]">
-              <Building2 className="w-3.5 h-3.5 text-emerald-400" />
-              <select
-                value={selectedCompanyId}
-                onChange={(e) => {
-                  setSelectedCompanyId(e.target.value);
-                  if (typeof window !== "undefined") {
-                    localStorage.setItem("green_node_selected_company", e.target.value);
-                  }
-                  const matchingGhs = e.target.value === "all"
-                    ? greenhouses
-                    : greenhouses.filter((g) => g.companyId === e.target.value);
-                  if (matchingGhs.length > 0) {
-                    setActiveGreenhouseId(matchingGhs[0].greenhouseId);
-                    if (typeof window !== "undefined") {
-                      localStorage.setItem("green_node_active_greenhouse", matchingGhs[0].greenhouseId);
-                    }
-                  }
-                }}
-                className="bg-transparent text-xs text-white focus:outline-none cursor-pointer max-w-[150px] truncate"
+            {/* Section 2: Primary Navigation (Modern Underline Design) */}
+            <nav className="flex items-center gap-7">
+              <Link
+                href="/"
+                className="group relative py-1.5 text-sm font-bold text-white transition-colors"
               >
-                <option value="all">All Companies</option>
-                {companies.map((c) => (
-                  <option key={c.companyId} value={c.companyId} className="bg-[#141417]">
-                    {c.name} ({c.location})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* 2. Greenhouse Selector (Shows Greenhouse Name + Plant) */}
-            <div className="flex items-center space-x-1.5 bg-[#141417] border border-[#282830] rounded-lg px-2.5 py-1 text-xs text-[#A1A1A6]">
-              <Warehouse className="w-3.5 h-3.5 text-teal-400" />
-              <select
-                value={activeGreenhouseId}
-                onChange={(e) => {
-                  setActiveGreenhouseId(e.target.value);
-                  if (typeof window !== "undefined") {
-                    localStorage.setItem("green_node_active_greenhouse", e.target.value);
-                  }
-                }}
-                className="bg-transparent text-xs text-white focus:outline-none cursor-pointer font-medium max-w-[180px] truncate"
+                <span>Modules</span>
+                <span className="absolute inset-x-0 -bottom-1 h-[2px] rounded-full bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400 shadow-[0_0_12px_rgba(52,211,153,0.75)]" />
+              </Link>
+              <Link
+                href="/analytics"
+                className="group relative py-1.5 text-sm font-medium text-[#8E8E93] hover:text-white transition-colors"
               >
-                {filteredGreenhouses.map((g) => (
-                  <option key={g.greenhouseId} value={g.greenhouseId} className="bg-[#141417]">
-                    {g.name} — {g.plant}
-                  </option>
-                ))}
-              </select>
+                <span>Analytics</span>
+                <span className="absolute inset-x-0 -bottom-1 h-[2px] rounded-full bg-white/30 scale-x-0 group-hover:scale-x-100 transition-transform duration-200 origin-left" />
+              </Link>
+              <Link
+                href="/registers"
+                className="group relative py-1.5 text-sm font-medium text-[#8E8E93] hover:text-white transition-colors"
+              >
+                <span>New Registers</span>
+                <span className="absolute inset-x-0 -bottom-1 h-[2px] rounded-full bg-white/30 scale-x-0 group-hover:scale-x-100 transition-transform duration-200 origin-left" />
+              </Link>
+            </nav>
+
+            {/* Section 3: Settings */}
+            <div className="flex items-center">
+              <Link
+                href="/settings"
+                title="Settings & Controls"
+                className="p-2 text-[#A1A1A6] hover:text-white rounded-xl hover:bg-white/[0.06] transition flex items-center justify-center"
+              >
+                <Settings className="w-4 h-4" />
+              </Link>
             </div>
-
-            {/* Action Button: Register Company */}
-            <button
-              onClick={() => setShowNewCompanyModal(true)}
-              title="Register a new company with name & location"
-              className="px-2.5 py-1.5 bg-[#1C1C20] hover:bg-[#282830] text-xs font-medium rounded-lg border border-[#282830] transition flex items-center space-x-1 text-[#A1A1A6] hover:text-white"
-            >
-              <Building2 className="w-3.5 h-3.5 text-emerald-400" />
-              <span>+ Company</span>
-            </button>
-
-            {/* Action Button: Register Greenhouse (Under Company with Plant) */}
-            <button
-              onClick={() => {
-                if (companies.length === 0) {
-                  alert("Please register a company first!");
-                  setShowNewCompanyModal(true);
-                  return;
-                }
-                if (selectedCompanyId !== "all") {
-                  setNewGhCompanyId(selectedCompanyId);
-                } else {
-                  setNewGhCompanyId(companies[0].companyId);
-                }
-                setShowNewGreenhouseModal(true);
-              }}
-              title="Register a greenhouse under a company"
-              className="px-2.5 py-1.5 bg-[#1C1C20] hover:bg-[#282830] text-xs font-medium rounded-lg border border-[#282830] transition flex items-center space-x-1 text-[#A1A1A6] hover:text-white"
-            >
-              <Warehouse className="w-3.5 h-3.5 text-teal-400" />
-              <span>+ Greenhouse</span>
-            </button>
-
-            {/* Action Button: Register Module */}
-            <button
-              onClick={() => {
-                if (greenhouses.length === 0) {
-                  alert("Please register a greenhouse first!");
-                  setShowNewGreenhouseModal(true);
-                  return;
-                }
-                setNewDeviceGreenhouseId(activeGreenhouseId);
-                setShowRegisterModal(true);
-              }}
-              className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white rounded-lg text-xs font-medium shadow-md shadow-emerald-500/20 transition flex items-center space-x-1.5"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Register Module</span>
-            </button>
-
-            {/* Status Badges */}
-            <div
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full text-xs font-medium border ${
-                wsConnected
-                  ? "bg-teal-500/10 text-teal-300 border-teal-500/20"
-                  : "bg-amber-500/10 text-amber-400 border-amber-500/20"
-              }`}
-            >
-              <Radio className="w-3.5 h-3.5" />
-              <span>{wsConnected ? "WS Live" : "WS Offline"}</span>
-            </div>
-
-            {/* Simulate Telemetry */}
-            <button
-              onClick={handleSendSample}
-              className="px-3 py-1.5 bg-[#1C1C20] hover:bg-[#282830] text-xs font-medium rounded-lg border border-[#282830] transition flex items-center space-x-1.5 text-[#A1A1A6] hover:text-white"
-            >
-              <Activity className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Simulate</span>
-            </button>
-
-            {/* Settings */}
-            <button
-              onClick={() => setShowSettingsModal(true)}
-              className="p-1.5 bg-[#1C1C20] hover:bg-[#282830] text-[#A1A1A6] hover:text-white rounded-lg border border-[#282830] transition"
-            >
-              <Settings className="w-4 h-4" />
-            </button>
-
-            {/* Logout */}
-            <button
-              onClick={logout}
-              className="p-1.5 bg-[#1C1C20] hover:bg-rose-500/10 hover:text-rose-400 text-[#A1A1A6] rounded-lg border border-[#282830] transition"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
           </div>
         </div>
       </header>
 
       {/* Main Content */}
       <main className="flex-1 max-w-7xl mx-auto w-full px-6 py-8 space-y-8">
-        {/* GREENHOUSE SUMMARY BANNER WITH COMPANY, LOCATION & PLANT */}
-        <div className="bg-gradient-to-r from-[#141417] via-[#16161B] to-[#121215] border border-[#282830] rounded-2xl p-6 shadow-xl relative overflow-hidden">
-          <div className="flex flex-wrap items-center justify-between gap-6 relative z-10">
-            <div>
-              <div className="flex items-center space-x-2 text-xs font-semibold uppercase tracking-wider text-emerald-400 mb-1">
-                <ShieldCheck className="w-4 h-4" />
-                <span>{activeGreenhouse?.companyName || "Company"} • {activeGreenhouse?.companyLocation || "Facility"}</span>
-              </div>
-              <h2 className="text-2xl font-bold text-white tracking-tight flex items-center space-x-3">
-                <span>{activeGreenhouse?.name || "Active Greenhouse"}</span>
-                <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center space-x-1">
-                  <Sprout className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Crop: {activeGreenhouse?.plant || "Vegetables"}</span>
-                </span>
-                <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-[#202028] text-[#A1A1A6] border border-[#303038]">
-                  {activeGreenhouse?.assignedDeviceIds?.length || greenhouseDevices.length} Modules
-                </span>
-              </h2>
-              <p className="text-xs text-[#8E8E93] mt-1 max-w-xl">
-                Operating under Company ID: <code className="text-[#A1A1A6] font-mono">{activeGreenhouse?.companyId || "comp"}</code>
-                {activeGreenhouse?.description ? ` • ${activeGreenhouse.description}` : ""}
-              </p>
-            </div>
-
-            {/* Greenhouse Overview Stats */}
-            <div className="flex flex-wrap items-center gap-4">
-              <div className="bg-[#1C1C22]/80 border border-[#2C2C36] rounded-xl px-4 py-2.5 text-center min-w-[100px]">
-                <span className="text-[10px] uppercase font-semibold text-[#8E8E93] block">Cluster Avg Temp</span>
-                <span className="text-lg font-bold text-emerald-400">
-                  {activeGreenhouse?.summary?.avgTemperature !== null && activeGreenhouse?.summary?.avgTemperature !== undefined
-                    ? `${activeGreenhouse.summary.avgTemperature}°C`
-                    : "--"}
-                </span>
-              </div>
-              <div className="bg-[#1C1C22]/80 border border-[#2C2C36] rounded-xl px-4 py-2.5 text-center min-w-[100px]">
-                <span className="text-[10px] uppercase font-semibold text-[#8E8E93] block">Cluster Avg Hum</span>
-                <span className="text-lg font-bold text-cyan-400">
-                  {activeGreenhouse?.summary?.avgHumidity !== null && activeGreenhouse?.summary?.avgHumidity !== undefined
-                    ? `${activeGreenhouse.summary.avgHumidity}%`
-                    : "--"}
-                </span>
-              </div>
-              <div className="bg-[#1C1C22]/80 border border-[#2C2C36] rounded-xl px-4 py-2.5 text-center min-w-[100px]">
-                <span className="text-[10px] uppercase font-semibold text-[#8E8E93] block">Cluster Soil</span>
-                <span className="text-lg font-bold text-purple-400">
-                  {activeGreenhouse?.summary?.avgSoilMoisture !== null && activeGreenhouse?.summary?.avgSoilMoisture !== undefined
-                    ? `${activeGreenhouse.summary.avgSoilMoisture}%`
-                    : "--"}
-                </span>
-              </div>
-              <div className="bg-[#1C1C22]/80 border border-[#2C2C36] rounded-xl px-4 py-2.5 text-center min-w-[100px]">
-                <span className="text-[10px] uppercase font-semibold text-[#8E8E93] block">Active Modules</span>
-                <span className="text-lg font-bold text-teal-400">
-                  {greenhouseDevices.filter((d) => d.isOnline).length} / {greenhouseDevices.length} Online
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-
         {/* REGISTERED MODULES INVENTORY (SENSORS & ACTUATORS) */}
         <section className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
@@ -1431,6 +1251,23 @@ export default function DashboardPage() {
               );
             }
 
+            const selectedModule =
+              displayed.find((d) => d.deviceId === focusedDeviceId) || displayed[0] || null;
+
+            const handleSelectModule = (dev: Device) => {
+              setFocusedDeviceId(dev.deviceId);
+              if (typeof window !== "undefined") {
+                localStorage.setItem("green_node_focused_device", dev.deviceId);
+              }
+              loadFocusedNodeData(dev.deviceId);
+              if (dev.greenhouseId && dev.greenhouseId !== activeGreenhouseId) {
+                setActiveGreenhouseId(dev.greenhouseId);
+                if (typeof window !== "undefined") {
+                  localStorage.setItem("green_node_active_greenhouse", dev.greenhouseId);
+                }
+              }
+            };
+
             const renderModuleCard = (dev: Device) => {
               const isActuator = getModuleCategory(dev) === "actuator";
               const actuatorMeta = getActuatorMeta(dev);
@@ -1447,19 +1284,7 @@ export default function DashboardPage() {
               return (
                 <div
                   key={dev.deviceId}
-                  onClick={() => {
-                    setFocusedDeviceId(dev.deviceId);
-                    if (typeof window !== "undefined") {
-                      localStorage.setItem("green_node_focused_device", dev.deviceId);
-                    }
-                    loadFocusedNodeData(dev.deviceId);
-                    if (dev.greenhouseId && dev.greenhouseId !== activeGreenhouseId) {
-                      setActiveGreenhouseId(dev.greenhouseId);
-                      if (typeof window !== "undefined") {
-                        localStorage.setItem("green_node_active_greenhouse", dev.greenhouseId);
-                      }
-                    }
-                  }}
+                  onClick={() => handleSelectModule(dev)}
                   className={`bg-[#141417] border rounded-2xl p-5 cursor-pointer transition relative group ${
                     isFocused
                       ? isActuator
@@ -1630,30 +1455,42 @@ export default function DashboardPage() {
             };
 
             return (
-              <div className="space-y-6">
-                {sensorList.length > 0 && (
-                  <div className="space-y-3">
-                    <div className="flex items-center space-x-2 text-xs font-semibold text-emerald-400 uppercase tracking-wider">
-                      <Cpu className="w-3.5 h-3.5" />
-                      <span>Sensor Module Registrations ({sensorList.length})</span>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {sensorList.map(renderModuleCard)}
-                    </div>
-                  </div>
-                )}
+              <div className="space-y-3">
+                <div className="flex items-center space-x-2 text-xs font-semibold text-emerald-400 uppercase tracking-wider">
+                  <Cpu className="w-3.5 h-3.5" />
+                  <span>Sensor Module Registrations ({displayed.length})</span>
+                </div>
 
-                {actuatorList.length > 0 && (
-                  <div className="space-y-3">
-                    <div className="flex items-center space-x-2 text-xs font-semibold text-cyan-300 uppercase tracking-wider">
-                      <Power className="w-3.5 h-3.5" />
-                      <span>Actuator Registrations ({actuatorList.length})</span>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {actuatorList.map(renderModuleCard)}
-                    </div>
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                  {/* Left Column: List of all available sensors and actuators (names only) */}
+                  <div className="lg:col-span-4 bg-[#141417] border border-[#282830] rounded-2xl p-2.5 space-y-1.5 max-h-[420px] overflow-y-auto">
+                    {displayed.map((dev) => {
+                      const isSelected = selectedModule?.deviceId === dev.deviceId;
+                      const isActuator = getModuleCategory(dev) === "actuator";
+                      return (
+                        <button
+                          key={dev.deviceId}
+                          type="button"
+                          onClick={() => handleSelectModule(dev)}
+                          className={`w-full text-left px-3.5 py-2.5 rounded-xl text-sm font-medium transition truncate border ${
+                            isSelected
+                              ? isActuator
+                                ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/40"
+                                : "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
+                              : "bg-[#18181D] text-white border-transparent hover:border-[#3E3E48] hover:bg-[#1E1E25]"
+                          }`}
+                        >
+                          {dev.name}
+                        </button>
+                      );
+                    })}
                   </div>
-                )}
+
+                  {/* Right Column: Selected sensor or actuator details */}
+                  <div className="lg:col-span-8">
+                    {selectedModule ? renderModuleCard(selectedModule) : null}
+                  </div>
+                </div>
               </div>
             );
           })()}
