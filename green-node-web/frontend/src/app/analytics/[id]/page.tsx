@@ -301,6 +301,22 @@ export default function GreenhouseAnalyticsDetailPage() {
           pointHoverBorderWidth: 2.5,
         },
         {
+          label: "Light Intensity (lx)",
+          data: filteredReadings.map((r) => r.light),
+          borderColor: "#F59E0B",
+          backgroundColor: makeAreaGradient("245, 158, 11", 0.14),
+          fill: true,
+          tension: 0.42,
+          cubicInterpolationMode: "monotone" as const,
+          borderWidth: 2.5,
+          yAxisID: "y1",
+          pointRadius: 0,
+          pointHoverRadius: 6,
+          pointHoverBackgroundColor: "#0A0A0C",
+          pointHoverBorderColor: "#F59E0B",
+          pointHoverBorderWidth: 2.5,
+        },
+        {
           label: "ESP32 SoC Temp (°C)",
           data: filteredReadings.map((r) => r.espTemperature ?? null),
           borderColor: "#F97316",
@@ -309,6 +325,7 @@ export default function GreenhouseAnalyticsDetailPage() {
           cubicInterpolationMode: "monotone" as const,
           borderWidth: 2,
           borderDash: [5, 4],
+          yAxisID: "y",
           pointRadius: 0,
           pointHoverRadius: 5,
           pointHoverBackgroundColor: "#0A0A0C",
@@ -405,10 +422,23 @@ export default function GreenhouseAnalyticsDetailPage() {
         },
       },
       y: {
+        type: "linear",
+        position: "left",
         border: { display: false },
         grid: { color: "rgba(255, 255, 255, 0.05)" },
         ticks: {
           color: "#8E8E93",
+          font: { size: 12 },
+          padding: 10,
+        },
+      },
+      y1: {
+        type: "linear",
+        position: "right",
+        border: { display: false },
+        grid: { drawOnChartArea: false },
+        ticks: {
+          color: "#F59E0B",
           font: { size: 12 },
           padding: 10,
         },
@@ -421,6 +451,18 @@ export default function GreenhouseAnalyticsDetailPage() {
     plugins: {
       ...baseChartOptions.plugins,
       legend: { display: false },
+    },
+    scales: {
+      x: baseChartOptions.scales.x,
+      y: {
+        border: { display: false },
+        grid: { color: "rgba(255, 255, 255, 0.05)" },
+        ticks: {
+          color: "#8E8E93",
+          font: { size: 12 },
+          padding: 10,
+        },
+      },
     },
   };
 
