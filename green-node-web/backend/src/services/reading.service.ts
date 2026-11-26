@@ -699,21 +699,36 @@ export class ReadingService {
       await greenhouse.save();
     }
 
+    const moduleCategory =
+      input.moduleCategory || (input.sensorType === 'actuator' ? 'actuator' : 'sensor');
+    const defaultLabel = moduleCategory === 'actuator' ? 'Actuator' : 'Sensor Module';
+
     const updateData: any = {
       deviceId,
-      name: input.name?.trim() || `Sensor Module ${deviceId.substring(0, 8)}`,
+      name: input.name?.trim() || `${defaultLabel} ${deviceId.substring(0, 8)}`,
       companyId: greenhouse.companyId,
       companyName: greenhouse.companyName,
       companyLocation: greenhouse.companyLocation,
       greenhouseId: greenhouse.greenhouseId,
       greenhouseName: greenhouse.name,
       plant: greenhouse.plant,
-      sensorType: input.sensorType || 'fc28',
+      moduleCategory,
+      sensorType: input.sensorType || (moduleCategory === 'actuator' ? 'actuator' : 'fc28'),
       location: input.location?.trim() || 'Zone 1',
       isRegistered: true,
       port: input.port || 80,
       heartbeatTimeoutSeconds: input.heartbeatTimeoutSeconds || 60
     };
+
+    if (input.actuatorType) {
+      updateData.actuatorType = input.actuatorType.trim();
+    } else if (moduleCategory === 'actuator') {
+      updateData.actuatorType = 'fan';
+    }
+
+    if (input.subNodeId) {
+      updateData.subNodeId = input.subNodeId.trim();
+    }
 
     if (input.ipAddress) {
       updateData.ipAddress = input.ipAddress;
@@ -729,10 +744,13 @@ export class ReadingService {
       level: 'success',
       category: 'device',
       deviceId: device.deviceId,
-      message: `Sensor Module "${device.name}" registered to [${device.greenhouseName} - ${device.plant}] at "${device.companyLocation}"`,
+      message: `${defaultLabel} "${device.name}" registered to [${device.greenhouseName} - ${device.plant}] at "${device.companyLocation}"`,
       details: {
         deviceId: device.deviceId,
         name: device.name,
+        moduleCategory,
+        actuatorType: device.actuatorType,
+        subNodeId: device.subNodeId,
         greenhouseId: device.greenhouseId,
         companyName: device.companyName,
         plant: device.plant
@@ -742,6 +760,9 @@ export class ReadingService {
     broadcast('device_registered', {
       deviceId: device.deviceId,
       name: device.name,
+      moduleCategory,
+      actuatorType: device.actuatorType,
+      subNodeId: device.subNodeId,
       companyId: device.companyId,
       companyName: device.companyName,
       companyLocation: device.companyLocation,

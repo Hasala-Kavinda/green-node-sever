@@ -5,6 +5,8 @@ jspm_packages/
 # Production build output
 dist/
 build/
+.next/
+.next-dev/
 
 # Environment variables
 .env

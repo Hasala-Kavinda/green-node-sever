@@ -18,6 +18,8 @@ import {
   fetchStats,
   fetchLogs,
   clearAllLogs,
+  fetchHubCommands,
+  clearHubCommands,
   pingDevice,
   pingKeepAlive,
   sendTestReading,
@@ -57,6 +59,7 @@ import {
   Check,
   ShieldCheck,
   Tag,
+  Power,
 } from "lucide-react";
 import {
   Chart as ChartJS,
@@ -136,6 +139,8 @@ export default function DashboardPage() {
     return "all";
   });
   const [copiedDeviceId, setCopiedDeviceId] = useState<string | null>(null);
+  const [moduleCategoryFilter, setModuleCategoryFilter] = useState<"all" | "sensor" | "actuator">("all");
+  const [registerModuleTab, setRegisterModuleTab] = useState<"sensor" | "actuator">("sensor");
 
   // Active Device Drilldown (Optional focus on a specific node within greenhouse)
   const [focusedDeviceId, setFocusedDeviceId] = useState<string | null>(() => {
@@ -175,6 +180,8 @@ export default function DashboardPage() {
 
   // System & Connection State
   const [logs, setLogs] = useState<SystemLog[]>([]);
+  const [hubCommands, setHubCommands] = useState<HubCommandRecord[]>([]);
+  const [activityFilter, setActivityFilter] = useState<"all" | "actuators">("all");
   const [wsConnected, setWsConnected] = useState<boolean>(false);
   const [backendStatus, setBackendStatus] = useState<"connected" | "sleeping" | "checking">("checking");
   const [backendLatency, setBackendLatency] = useState<number | null>(null);
@@ -190,6 +197,7 @@ export default function DashboardPage() {
     greenhouseName: string;
     companyLocation: string;
     plant: string;
+    moduleCategory: "sensor" | "actuator";
   } | null>(null);
 
   // Form inputs for Company Registration
@@ -205,13 +213,39 @@ export default function DashboardPage() {
   const [newGhDescription, setNewGhDescription] = useState<string>("");
   const [isCreatingGh, setIsCreatingGh] = useState<boolean>(false);
 
-  // Form inputs for Sensor Module Registration
+  // Form inputs for Module Registration (Sensor & Actuator)
   const [newDeviceName, setNewDeviceName] = useState<string>("");
   const [newDeviceGreenhouseId, setNewDeviceGreenhouseId] = useState<string>("greenhouse-01");
   const [newDeviceLocation, setNewDeviceLocation] = useState<string>("Zone 1 - Main Bed");
   const [newDeviceSensorType, setNewDeviceSensorType] = useState<string>("fc28");
+  const [newDeviceActuatorType, setNewDeviceActuatorType] = useState<string>("fan");
+  const [newDeviceSubNodeId, setNewDeviceSubNodeId] = useState<string>("");
   const [newDeviceId, setNewDeviceId] = useState<string>("");
   const [isRegistering, setIsRegistering] = useState<boolean>(false);
+
+  const getActuatorMetaMap = (): Record<string, { moduleCategory: "sensor" | "actuator"; actuatorType?: string; subNodeId?: string }> => {
+    if (typeof window === "undefined") return {};
+    try {
+      const raw = localStorage.getItem("green_node_actuator_meta");
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  };
+
+  const getModuleCategory = (dev: Device): "sensor" | "actuator" => {
+    if (dev.moduleCategory === "actuator" || dev.sensorType === "actuator") return "actuator";
+    const meta = getActuatorMetaMap()[dev.deviceId];
+    return meta?.moduleCategory === "actuator" ? "actuator" : "sensor";
+  };
+
+  const getActuatorMeta = (dev: Device): { actuatorType: string; subNodeId?: string } => {
+    const meta = getActuatorMetaMap()[dev.deviceId];
+    return {
+      actuatorType: dev.actuatorType || meta?.actuatorType || "fan",
+      subNodeId: dev.subNodeId || meta?.subNodeId,
+    };
+  };
 
   // Settings & Utilities
   const [apiUrlInput, setApiUrlInput] = useState<string>("");
@@ -388,8 +422,9 @@ export default function DashboardPage() {
 
   const loadLogs = async () => {
     try {
-      const list = await fetchLogs(30);
+      const [list, cmds] = await Promise.all([fetchLogs(50), fetchHubCommands(30)]);
       setLogs(list);
+      setHubCommands(cmds);
     } catch {
       // ignore
     }
@@ -475,11 +510,22 @@ export default function DashboardPage() {
             (payload.event === "hub_command_queued" || payload.event === "hub_command_updated") &&
             payload.data
           ) {
+            const rec = payload.data as HubCommandRecord;
+            setHubCommands((prev) => {
+              const idx = prev.findIndex((c) => c.commandId === rec.commandId);
+              if (idx >= 0) {
+                const next = [...prev];
+                next[idx] = rec;
+                return next;
+              }
+              return [rec, ...prev].slice(0, 30);
+            });
             setLiveHubCmdUpdate((prev) => ({
               seq: (prev?.seq || 0) + 1,
-              record: payload.data,
+              record: rec,
             }));
           } else if (payload.event === "hub_commands_cleared") {
+            setHubCommands([]);
             setLiveHubCmdUpdate((prev) => ({
               seq: (prev?.seq || 0) + 1,
               cleared: true,
@@ -565,11 +611,12 @@ export default function DashboardPage() {
     }
   };
 
-  // 3. Handle Registering a Sensor Module
+  // 3. Handle Registering a Module (Sensor Module or Actuator)
   const handleRegisterDevice = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsRegistering(true);
     try {
+      const isActuator = registerModuleTab === "actuator";
       const selectedGh = greenhouses.find((g) => g.greenhouseId === newDeviceGreenhouseId);
       const company = selectedGh?.companyLocation || "Main Facility";
       const ghName = selectedGh?.name || "Greenhouse";
@@ -579,13 +626,31 @@ export default function DashboardPage() {
         deviceId: newDeviceId.trim() || undefined,
         name: newDeviceName.trim(),
         greenhouseId: newDeviceGreenhouseId,
-        sensorType: newDeviceSensorType,
+        moduleCategory: registerModuleTab,
+        sensorType: isActuator ? "generic" : newDeviceSensorType,
+        actuatorType: isActuator ? newDeviceActuatorType : undefined,
+        subNodeId: isActuator && newDeviceSubNodeId.trim() ? newDeviceSubNodeId.trim() : undefined,
         location: newDeviceLocation.trim() || "Zone 1",
       });
+
+      if (typeof window !== "undefined") {
+        const metaMap = getActuatorMetaMap();
+        if (isActuator) {
+          metaMap[dev.deviceId] = {
+            moduleCategory: "actuator",
+            actuatorType: newDeviceActuatorType,
+            subNodeId: newDeviceSubNodeId.trim() || undefined,
+          };
+        } else {
+          delete metaMap[dev.deviceId];
+        }
+        localStorage.setItem("green_node_actuator_meta", JSON.stringify(metaMap));
+      }
 
       setShowRegisterModal(false);
       setNewDeviceName("");
       setNewDeviceId("");
+      setNewDeviceSubNodeId("");
       setNewDeviceLocation("Zone 1 - Main Bed");
 
       await loadHierarchy();
@@ -604,11 +669,12 @@ export default function DashboardPage() {
         greenhouseName: ghName,
         companyLocation: company,
         plant,
+        moduleCategory: registerModuleTab,
       });
 
       setFeedbackMsg({
         type: "success",
-        text: `Sensor Module "${dev.name}" registered to ${ghName}!`,
+        text: `${isActuator ? "Actuator" : "Sensor Module"} "${dev.name}" registered to ${ghName}!`,
       });
       setTimeout(() => setFeedbackMsg(null), 5000);
     } catch (err: any) {
@@ -700,10 +766,136 @@ export default function DashboardPage() {
   };
 
   const handleClearLogs = async () => {
-    if (!confirm("Are you sure you want to clear all database logs?")) return;
-    await clearAllLogs();
+    if (!confirm("Are you sure you want to clear module & actuator activity logs?")) return;
+    await Promise.all([clearAllLogs(), clearHubCommands()]);
     setLogs([]);
+    setHubCommands([]);
   };
+
+  type ModuleActivityEntry = {
+    id: string;
+    isActuator: boolean;
+    deviceName: string;
+    deviceTypeLabel: string;
+    deviceSubLabel?: string;
+    whatHappened: string;
+    status: "executed" | "dispatched" | "pending" | "failed" | "warning" | "info";
+    timestamp: string;
+  };
+
+  const resolveDeviceByIdentifier = (identifier?: string): Device | undefined => {
+    if (!identifier) return undefined;
+    const norm = identifier.toLowerCase();
+    return allDevices.find(
+      (d) => d.deviceId.toLowerCase() === norm || (d.subNodeId && d.subNodeId.toLowerCase() === norm)
+    );
+  };
+
+  const moduleActivityEntries: ModuleActivityEntry[] = [
+    ...hubCommands.map((c): ModuleActivityEntry => {
+      const targetId =
+        c.payload?.deviceId || c.payload?.uuid || c.payload?.snId || c.payload?.name || c.hubId || "Hub";
+      const matched = resolveDeviceByIdentifier(c.payload?.deviceId || c.payload?.uuid || c.payload?.snId);
+      const isActuatorDevice = matched ? getModuleCategory(matched) === "actuator" : false;
+      const isActuatorCmd =
+        c.type === "cmd" ||
+        isActuatorDevice ||
+        (c.type === "pair" && (c.payload?.kind === "actuator" || c.payload?.kind === "irrigation"));
+
+      const deviceName =
+        matched?.name ||
+        (c.type === "pair" && c.payload?.name ? String(c.payload.name) : undefined) ||
+        String(targetId);
+
+      const deviceTypeLabel = matched
+        ? getModuleCategory(matched) === "actuator"
+          ? `Actuator • ${getActuatorMeta(matched).actuatorType}`
+          : `Sensor • ${matched.sensorType || "Node"}`
+        : c.type === "cmd"
+        ? "Actuator"
+        : c.type === "pair"
+        ? String(c.payload?.kind || "Module")
+        : "Hub Module";
+
+      const subLabel =
+        matched?.subNodeId ||
+        (matched?.deviceId ? `${matched.deviceId.slice(0, 8)}...` : targetId !== deviceName ? String(targetId) : undefined);
+
+      let whatHappened = c.cliString;
+      if (c.type === "cmd") {
+        const action = String(c.payload?.action || "").toUpperCase() || "TRIGGERED";
+        const dur = action === "ON" && c.payload?.durationS ? ` (${c.payload.durationS}s)` : "";
+        whatHappened = `Turned ${action}${dur}`;
+      } else if (c.type === "pair") {
+        whatHappened = `Pairing opened for ${c.payload?.kind || "module"} "${c.payload?.name || ""}" (${c.payload?.seconds ?? 120}s)`;
+      } else if (c.type === "cfg") {
+        whatHappened = `Report interval set to ${c.payload?.intervalS ?? 60}s`;
+      } else if (c.type === "map") {
+        whatHappened = `Mapped ${c.payload?.snId || "node"} → ${String(c.payload?.uuid || "").slice(0, 8)}...`;
+      } else if (c.type === "cancel") {
+        whatHappened = "Cancelled active pairing window";
+      } else if (c.type === "maps") {
+        whatHappened = "Requested hub node-to-UUID map";
+      }
+
+      if (c.resultMessage) {
+        whatHappened = `${whatHappened} — ${c.resultMessage}`;
+      }
+
+      return {
+        id: `cmd-${c.commandId}`,
+        isActuator: isActuatorCmd,
+        deviceName,
+        deviceTypeLabel,
+        deviceSubLabel: subLabel,
+        whatHappened,
+        status: c.status,
+        timestamp: c.executedAt || c.dispatchedAt || c.createdAt,
+      };
+    }),
+    ...logs
+      .filter(
+        (log) =>
+          log.category === "device" &&
+          !log.message.startsWith("Queued hub CLI command:") &&
+          !log.message.startsWith('Hub command "')
+      )
+      .map((log, idx): ModuleActivityEntry => {
+        const matched = resolveDeviceByIdentifier(log.deviceId);
+        const isActuator = matched
+          ? getModuleCategory(matched) === "actuator"
+          : /actuator|fan|pump|valve|relay|irrigation/i.test(log.message);
+        const deviceName = matched?.name || (log.deviceId ? `${log.deviceId.slice(0, 8)}...` : "Module");
+        const deviceTypeLabel = matched
+          ? getModuleCategory(matched) === "actuator"
+            ? `Actuator • ${getActuatorMeta(matched).actuatorType}`
+            : `Sensor • ${matched.sensorType || "Node"}`
+          : isActuator
+          ? "Actuator"
+          : "Module";
+        const status: ModuleActivityEntry["status"] =
+          log.level === "error" || log.severity === "error"
+            ? "failed"
+            : log.level === "warn" || log.severity === "warning"
+            ? "warning"
+            : log.level === "success"
+            ? "executed"
+            : "info";
+
+        return {
+          id: `log-${log.id || idx}`,
+          isActuator,
+          deviceName,
+          deviceTypeLabel,
+          deviceSubLabel: matched?.subNodeId || (matched?.deviceId ? `${matched.deviceId.slice(0, 8)}...` : undefined),
+          whatHappened: log.message,
+          status,
+          timestamp: log.timestamp,
+        };
+      }),
+  ]
+    .filter((entry) => (activityFilter === "actuators" ? entry.isActuator : true))
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   // Filter Greenhouses by selected Company
   const filteredGreenhouses =
@@ -954,7 +1146,7 @@ export default function DashboardPage() {
               <span>+ Greenhouse</span>
             </button>
 
-            {/* Action Button: Register Sensor Module */}
+            {/* Action Button: Register Module */}
             <button
               onClick={() => {
                 if (greenhouses.length === 0) {
@@ -968,7 +1160,7 @@ export default function DashboardPage() {
               className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white rounded-lg text-xs font-medium shadow-md shadow-emerald-500/20 transition flex items-center space-x-1.5"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>Register Sensor Module</span>
+              <span>Register Module</span>
             </button>
 
             {/* Status Badges */}
@@ -1073,24 +1265,65 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* REGISTERED SENSOR MODULES INVENTORY & TELEMETRY */}
+        {/* REGISTERED MODULES INVENTORY (SENSORS & ACTUATORS) */}
         <section className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <h3 className="text-base font-semibold text-white tracking-tight flex items-center space-x-2">
                 <Cpu className="w-5 h-5 text-emerald-400" />
-                <span>Registered Sensor Modules</span>
+                <span>Registered Modules</span>
                 <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                  {allDevices.length} Module{allDevices.length !== 1 ? "s" : ""} Total
+                  {allDevices.filter((d) => getModuleCategory(d) === "sensor").length} Sensor
+                  {allDevices.filter((d) => getModuleCategory(d) === "sensor").length !== 1 ? "s" : ""}
+                </span>
+                <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                  {allDevices.filter((d) => getModuleCategory(d) === "actuator").length} Actuator
+                  {allDevices.filter((d) => getModuleCategory(d) === "actuator").length !== 1 ? "s" : ""}
                 </span>
               </h3>
               <p className="text-xs text-[#8E8E93] mt-0.5">
-                Hardware modules authorized with unique UUIDs. Copy the UUID to provision the ESP32 node via captive portal.
+                Sensor modules and actuators authorized with unique UUIDs. Copy the UUID to provision the ESP32 node via captive portal.
               </p>
             </div>
 
             {/* Filter Toggle & Register Action */}
             <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center bg-[#141417] border border-[#282830] rounded-xl p-1 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setModuleCategoryFilter("all")}
+                  className={`px-2.5 py-1.5 rounded-lg font-medium transition ${
+                    moduleCategoryFilter === "all"
+                      ? "bg-[#282832] text-white shadow-sm"
+                      : "text-[#A1A1A6] hover:text-white"
+                  }`}
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModuleCategoryFilter("sensor")}
+                  className={`px-2.5 py-1.5 rounded-lg font-medium transition ${
+                    moduleCategoryFilter === "sensor"
+                      ? "bg-emerald-500 text-white shadow-sm"
+                      : "text-[#A1A1A6] hover:text-white"
+                  }`}
+                >
+                  Sensors
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModuleCategoryFilter("actuator")}
+                  className={`px-2.5 py-1.5 rounded-lg font-medium transition ${
+                    moduleCategoryFilter === "actuator"
+                      ? "bg-cyan-500 text-white shadow-sm"
+                      : "text-[#A1A1A6] hover:text-white"
+                  }`}
+                >
+                  Actuators
+                </button>
+              </div>
+
               <div className="flex items-center bg-[#141417] border border-[#282830] rounded-xl p-1 text-xs">
                 <button
                   type="button"
@@ -1139,7 +1372,7 @@ export default function DashboardPage() {
                 className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white rounded-xl text-xs font-semibold shadow-md shadow-emerald-500/20 transition flex items-center space-x-1.5"
               >
                 <Plus className="w-4 h-4" />
-                <span>+ Register Sensor Module</span>
+                <span>+ Register Module</span>
               </button>
             </div>
           </div>
@@ -1161,20 +1394,28 @@ export default function DashboardPage() {
 
           {/* Devices Grid */}
           {(() => {
-            const displayed =
+            const baseDisplayed =
               deviceViewFilter === "all"
                 ? selectedCompanyId === "all"
                   ? allDevices
                   : allDevices.filter((d) => d.companyId === selectedCompanyId)
                 : greenhouseDevices;
 
+            const displayed =
+              moduleCategoryFilter === "all"
+                ? baseDisplayed
+                : baseDisplayed.filter((d) => getModuleCategory(d) === moduleCategoryFilter);
+
+            const sensorList = displayed.filter((d) => getModuleCategory(d) === "sensor");
+            const actuatorList = displayed.filter((d) => getModuleCategory(d) === "actuator");
+
             if (displayed.length === 0) {
               return (
                 <div className="bg-[#141417] border border-[#282830] rounded-2xl p-12 text-center">
                   <Cpu className="w-12 h-12 text-[#3E3E48] mx-auto mb-3" />
-                  <h4 className="text-sm font-semibold text-white">No Sensor Modules Registered Here</h4>
+                  <h4 className="text-sm font-semibold text-white">No Modules Registered Here</h4>
                   <p className="text-xs text-[#8E8E93] max-w-md mx-auto mt-1 mb-4">
-                    Register a sensor module to generate its unique UUID. Copy that UUID and paste it into the ESP32 Onboard Captive Portal (GreenNode-Setup).
+                    Register a sensor module or actuator to generate its unique UUID. Copy that UUID and paste it into the ESP32 Onboard Captive Portal (GreenNode-Setup).
                   </p>
                   <button
                     onClick={() => {
@@ -1184,175 +1425,235 @@ export default function DashboardPage() {
                     className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-white rounded-xl text-xs font-medium shadow-md shadow-emerald-500/20 transition inline-flex items-center space-x-2"
                   >
                     <Plus className="w-4 h-4" />
-                    <span>Register Sensor Module</span>
+                    <span>Register Module</span>
                   </button>
                 </div>
               );
             }
 
-            return (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {displayed.map((dev) => {
-                  const isFocused = dev.deviceId === focusedDeviceId;
-                  const r = dev.latestReading || (isFocused ? focusedLatestReading : undefined);
-                  const probeLabel =
-                    dev.sensorType === "md0869"
-                      ? "All Modules + MD0869"
-                      : dev.sensorType === "fc28"
-                      ? "All Modules + FC-28"
-                      : dev.sensorType || "Standard Probe";
+            const renderModuleCard = (dev: Device) => {
+              const isActuator = getModuleCategory(dev) === "actuator";
+              const actuatorMeta = getActuatorMeta(dev);
+              const isFocused = dev.deviceId === focusedDeviceId;
+              const r = dev.latestReading || (isFocused ? focusedLatestReading : undefined);
+              const probeLabel = isActuator
+                ? `Actuator • ${actuatorMeta.actuatorType.toUpperCase()}`
+                : dev.sensorType === "md0869"
+                ? "All Modules + MD0869"
+                : dev.sensorType === "fc28"
+                ? "All Modules + FC-28"
+                : dev.sensorType || "Standard Probe";
 
-                  return (
-                    <div
-                      key={dev.deviceId}
-                      onClick={() => {
-                        setFocusedDeviceId(dev.deviceId);
-                        if (typeof window !== "undefined") {
-                          localStorage.setItem("green_node_focused_device", dev.deviceId);
-                        }
-                        loadFocusedNodeData(dev.deviceId);
-                        if (dev.greenhouseId && dev.greenhouseId !== activeGreenhouseId) {
-                          setActiveGreenhouseId(dev.greenhouseId);
-                          if (typeof window !== "undefined") {
-                            localStorage.setItem("green_node_active_greenhouse", dev.greenhouseId);
-                          }
-                        }
-                      }}
-                      className={`bg-[#141417] border rounded-2xl p-5 cursor-pointer transition relative group ${
-                        isFocused
-                          ? "border-emerald-500 shadow-xl shadow-emerald-500/15 ring-1 ring-emerald-500/40"
-                          : "border-[#282830] hover:border-[#3E3E48]"
-                      }`}
-                    >
-                      {/* Node Header */}
-                      <div className="flex items-start justify-between mb-2.5">
-                        <div className="flex-1 pr-2">
-                          <div className="flex items-center space-x-2">
-                            <span className="text-sm font-bold text-white group-hover:text-emerald-400 transition">
-                              {dev.name}
-                            </span>
-                            <span className="text-[10px] px-2 py-0.5 rounded uppercase font-bold tracking-wider bg-[#202028] text-emerald-400 border border-emerald-500/20">
-                              {probeLabel}
-                            </span>
-                          </div>
-
-                          <div className="text-[11px] text-[#A1A1A6] mt-1 flex flex-wrap items-center gap-1.5">
-                            <span className="text-white font-medium">🏛️ {dev.greenhouseName || "Greenhouse"}</span>
-                            <span>•</span>
-                            <span className="text-emerald-400 font-medium">🌱 {dev.plant || "Crop"}</span>
-                            <span>•</span>
-                            <span>📍 {dev.location || "Zone 1"}</span>
-                          </div>
-                        </div>
-
-                        {/* Status & Delete */}
-                        <div className="flex items-center space-x-1.5 shrink-0">
-                          <div
-                            className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold border ${
-                              dev.isOnline
-                                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                                : r
-                                ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
-                                : "bg-amber-500/10 text-amber-300 border-amber-500/20"
-                            }`}
-                          >
-                            <span
-                              className={`w-1.5 h-1.5 rounded-full ${
-                                dev.isOnline
-                                  ? "bg-emerald-400 animate-pulse"
-                                  : r
-                                  ? "bg-rose-400"
-                                  : "bg-amber-400"
-                              }`}
-                            />
-                            <span>{dev.isOnline ? "Online" : r ? "Offline" : "Pending Sync"}</span>
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={(e) => handleDeleteDevice(e, dev)}
-                            title="Unregister this sensor module"
-                            className="p-1 rounded-lg text-[#6E6E73] hover:text-rose-400 hover:bg-rose-500/10 transition"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Prominent Device UUID Box with 1-Click Copy */}
-                      <div className="bg-[#0B0B0E] border border-[#24242C] rounded-xl p-2.5 my-3 flex items-center justify-between gap-2">
-                        <div className="overflow-hidden">
-                          <span className="text-[9px] uppercase font-bold text-[#8E8E93] tracking-wider block">
-                            Provisioning UUID
-                          </span>
-                          <span className="text-xs font-mono font-bold text-emerald-400 select-all break-all">
-                            {dev.deviceId}
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleCopyUuid(dev.deviceId);
-                          }}
-                          title="Copy UUID to paste into ESP captive portal"
-                          className="px-2.5 py-1.5 bg-[#1C1C22] hover:bg-emerald-500 hover:text-white text-[#C7C7CC] rounded-lg border border-[#303038] text-xs font-semibold shrink-0 transition flex items-center space-x-1"
+              return (
+                <div
+                  key={dev.deviceId}
+                  onClick={() => {
+                    setFocusedDeviceId(dev.deviceId);
+                    if (typeof window !== "undefined") {
+                      localStorage.setItem("green_node_focused_device", dev.deviceId);
+                    }
+                    loadFocusedNodeData(dev.deviceId);
+                    if (dev.greenhouseId && dev.greenhouseId !== activeGreenhouseId) {
+                      setActiveGreenhouseId(dev.greenhouseId);
+                      if (typeof window !== "undefined") {
+                        localStorage.setItem("green_node_active_greenhouse", dev.greenhouseId);
+                      }
+                    }
+                  }}
+                  className={`bg-[#141417] border rounded-2xl p-5 cursor-pointer transition relative group ${
+                    isFocused
+                      ? isActuator
+                        ? "border-cyan-500 shadow-xl shadow-cyan-500/15 ring-1 ring-cyan-500/40"
+                        : "border-emerald-500 shadow-xl shadow-emerald-500/15 ring-1 ring-emerald-500/40"
+                      : "border-[#282830] hover:border-[#3E3E48]"
+                  }`}
+                >
+                  {/* Node Header */}
+                  <div className="flex items-start justify-between mb-2.5">
+                    <div className="flex-1 pr-2">
+                      <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                        <span
+                          className={`text-sm font-bold text-white transition ${
+                            isActuator ? "group-hover:text-cyan-400" : "group-hover:text-emerald-400"
+                          }`}
                         >
-                          {copiedDeviceId === dev.deviceId ? (
-                            <>
-                              <Check className="w-3.5 h-3.5 text-emerald-300" />
-                              <span className="text-emerald-300 font-bold">Copied!</span>
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="w-3.5 h-3.5" />
-                              <span>Copy UUID</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-
-                      {/* Sensor Metrics Matrix */}
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-[#202026]">
-                        <div className="bg-[#18181D] rounded-lg p-2 text-center">
-                          <span className="text-[10px] text-[#8E8E93] block">Temp</span>
-                          <span className="text-xs font-bold text-emerald-400">
-                            {r?.temperature !== undefined ? `${r.temperature.toFixed(1)}°C` : "--"}
-                          </span>
-                        </div>
-                        <div className="bg-[#18181D] rounded-lg p-2 text-center">
-                          <span className="text-[10px] text-[#8E8E93] block">Humidity</span>
-                          <span className="text-xs font-bold text-cyan-400">
-                            {r?.humidity !== undefined ? `${r.humidity.toFixed(1)}%` : "--"}
-                          </span>
-                        </div>
-                        <div className="bg-[#18181D] rounded-lg p-2 text-center">
-                          <span className="text-[10px] text-[#8E8E93] block">Soil</span>
-                          <span className="text-xs font-bold text-purple-400">
-                            {r?.soilMoisture !== undefined ? `${r.soilMoisture.toFixed(1)}%` : "--"}
-                          </span>
-                        </div>
-                        <div className="bg-[#18181D] rounded-lg p-2 text-center">
-                          <span className="text-[10px] text-[#8E8E93] block">Light</span>
-                          <span className="text-xs font-bold text-amber-400">
-                            {r?.light !== undefined ? `${r.light.toFixed(0)} lx` : "--"}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Footer with Wi-Fi & Action */}
-                      <div className="mt-3 flex items-center justify-between text-[11px] text-[#6E6E73] pt-2 border-t border-[#1C1C22]">
-                        <span className="flex items-center space-x-1 truncate max-w-[170px]">
-                          <Wifi className="w-3 h-3 text-cyan-400 shrink-0" />
-                          <span className="truncate">{r?.wifiSsid || dev.wifiSsid || "Wi-Fi Ready"}</span>
+                          {dev.name}
                         </span>
-                        <span className="text-emerald-400 hover:underline font-medium">
-                          {isFocused ? "Inspecting Telemetry ↓" : "Click to Inspect"}
+                        <span
+                          className={`text-[10px] px-2 py-0.5 rounded uppercase font-bold tracking-wider bg-[#202028] border ${
+                            isActuator
+                              ? "text-cyan-300 border-cyan-500/20"
+                              : "text-emerald-400 border-emerald-500/20"
+                          }`}
+                        >
+                          {probeLabel}
+                        </span>
+                      </div>
+
+                      <div className="text-[11px] text-[#A1A1A6] mt-1 flex flex-wrap items-center gap-1.5">
+                        <span className="text-white font-medium">🏛️ {dev.greenhouseName || "Greenhouse"}</span>
+                        <span>•</span>
+                        <span className="text-emerald-400 font-medium">🌱 {dev.plant || "Crop"}</span>
+                        <span>•</span>
+                        <span>📍 {dev.location || "Zone 1"}</span>
+                      </div>
+                    </div>
+
+                    {/* Status & Delete */}
+                    <div className="flex items-center space-x-1.5 shrink-0">
+                      <div
+                        className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold border ${
+                          dev.isOnline
+                            ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                            : r
+                            ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                            : "bg-amber-500/10 text-amber-300 border-amber-500/20"
+                        }`}
+                      >
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            dev.isOnline
+                              ? "bg-emerald-400 animate-pulse"
+                              : r
+                              ? "bg-rose-400"
+                              : "bg-amber-400"
+                          }`}
+                        />
+                        <span>{dev.isOnline ? "Online" : r ? "Offline" : "Pending Sync"}</span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={(e) => handleDeleteDevice(e, dev)}
+                        title={`Unregister this ${isActuator ? "actuator" : "sensor module"}`}
+                        className="p-1 rounded-lg text-[#6E6E73] hover:text-rose-400 hover:bg-rose-500/10 transition"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Prominent Device UUID Box with 1-Click Copy */}
+                  <div className="bg-[#0B0B0E] border border-[#24242C] rounded-xl p-2.5 my-3 flex items-center justify-between gap-2">
+                    <div className="overflow-hidden">
+                      <span className="text-[9px] uppercase font-bold text-[#8E8E93] tracking-wider block">
+                        Provisioning UUID
+                      </span>
+                      <span
+                        className={`text-xs font-mono font-bold select-all break-all ${
+                          isActuator ? "text-cyan-300" : "text-emerald-400"
+                        }`}
+                      >
+                        {dev.deviceId}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCopyUuid(dev.deviceId);
+                      }}
+                      title="Copy UUID to paste into ESP captive portal"
+                      className="px-2.5 py-1.5 bg-[#1C1C22] hover:bg-emerald-500 hover:text-white text-[#C7C7CC] rounded-lg border border-[#303038] text-xs font-semibold shrink-0 transition flex items-center space-x-1"
+                    >
+                      {copiedDeviceId === dev.deviceId ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-300" />
+                          <span className="text-emerald-300 font-bold">Copied!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>Copy UUID</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Metrics or Actuator Details */}
+                  {isActuator ? (
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-[#202026]">
+                      <div className="bg-[#18181D] rounded-lg p-2 text-center">
+                        <span className="text-[10px] text-[#8E8E93] block">Actuator Type</span>
+                        <span className="text-xs font-bold text-cyan-300 capitalize">
+                          {actuatorMeta.actuatorType}
+                        </span>
+                      </div>
+                      <div className="bg-[#18181D] rounded-lg p-2 text-center">
+                        <span className="text-[10px] text-[#8E8E93] block">Sub-Node ID</span>
+                        <span className="text-xs font-bold font-mono text-amber-300">
+                          {actuatorMeta.subNodeId || "Unmapped"}
                         </span>
                       </div>
                     </div>
-                  );
-                })}
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-[#202026]">
+                      <div className="bg-[#18181D] rounded-lg p-2 text-center">
+                        <span className="text-[10px] text-[#8E8E93] block">Temp</span>
+                        <span className="text-xs font-bold text-emerald-400">
+                          {r?.temperature !== undefined ? `${r.temperature.toFixed(1)}°C` : "--"}
+                        </span>
+                      </div>
+                      <div className="bg-[#18181D] rounded-lg p-2 text-center">
+                        <span className="text-[10px] text-[#8E8E93] block">Humidity</span>
+                        <span className="text-xs font-bold text-cyan-400">
+                          {r?.humidity !== undefined ? `${r.humidity.toFixed(1)}%` : "--"}
+                        </span>
+                      </div>
+                      <div className="bg-[#18181D] rounded-lg p-2 text-center">
+                        <span className="text-[10px] text-[#8E8E93] block">Soil</span>
+                        <span className="text-xs font-bold text-purple-400">
+                          {r?.soilMoisture !== undefined ? `${r.soilMoisture.toFixed(1)}%` : "--"}
+                        </span>
+                      </div>
+                      <div className="bg-[#18181D] rounded-lg p-2 text-center">
+                        <span className="text-[10px] text-[#8E8E93] block">Light</span>
+                        <span className="text-xs font-bold text-amber-400">
+                          {r?.light !== undefined ? `${r.light.toFixed(0)} lx` : "--"}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Footer with Wi-Fi & Action */}
+                  <div className="mt-3 flex items-center justify-between text-[11px] text-[#6E6E73] pt-2 border-t border-[#1C1C22]">
+                    <span className="flex items-center space-x-1 truncate max-w-[170px]">
+                      <Wifi className="w-3 h-3 text-cyan-400 shrink-0" />
+                      <span className="truncate">{r?.wifiSsid || dev.wifiSsid || "Wi-Fi Ready"}</span>
+                    </span>
+                    <span className={`${isActuator ? "text-cyan-400" : "text-emerald-400"} hover:underline font-medium`}>
+                      {isFocused ? "Selected ↓" : "Click to Select"}
+                    </span>
+                  </div>
+                </div>
+              );
+            };
+
+            return (
+              <div className="space-y-6">
+                {sensorList.length > 0 && (
+                  <div className="space-y-3">
+                    <div className="flex items-center space-x-2 text-xs font-semibold text-emerald-400 uppercase tracking-wider">
+                      <Cpu className="w-3.5 h-3.5" />
+                      <span>Sensor Module Registrations ({sensorList.length})</span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {sensorList.map(renderModuleCard)}
+                    </div>
+                  </div>
+                )}
+
+                {actuatorList.length > 0 && (
+                  <div className="space-y-3">
+                    <div className="flex items-center space-x-2 text-xs font-semibold text-cyan-300 uppercase tracking-wider">
+                      <Power className="w-3.5 h-3.5" />
+                      <span>Actuator Registrations ({actuatorList.length})</span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {actuatorList.map(renderModuleCard)}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })()}
@@ -1583,25 +1884,49 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* System & Audit Logs */}
+          {/* Module & Actuator Activity Log */}
           <div className="bg-[#141417] border border-[#282830] rounded-2xl p-6 flex flex-col">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
               <h3 className="text-sm font-medium text-white flex items-center space-x-2">
-                <Wifi className="w-4 h-4 text-cyan-400" />
-                <span>Cluster Activity & Registration Logs</span>
+                <Power className="w-4 h-4 text-amber-400" />
+                <span>Module &amp; Actuator Activity Log</span>
               </h3>
               <div className="flex items-center space-x-2">
+                <div className="inline-flex rounded-lg bg-[#0E0E12] border border-[#24242C] p-0.5 text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() => setActivityFilter("all")}
+                    className={`px-2 py-0.5 rounded-md transition ${
+                      activityFilter === "all"
+                        ? "bg-[#24242E] text-white font-medium"
+                        : "text-[#8E8E93] hover:text-white"
+                    }`}
+                  >
+                    All Modules
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActivityFilter("actuators")}
+                    className={`px-2 py-0.5 rounded-md transition ${
+                      activityFilter === "actuators"
+                        ? "bg-amber-500/20 text-amber-300 font-medium"
+                        : "text-[#8E8E93] hover:text-white"
+                    }`}
+                  >
+                    Actuators
+                  </button>
+                </div>
                 <button
                   onClick={loadLogs}
                   className="p-1 hover:text-white text-[#8E8E93] transition"
-                  title="Refresh logs"
+                  title="Refresh module activity"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                 </button>
                 <button
                   onClick={handleClearLogs}
                   className="p-1 hover:text-rose-400 text-[#8E8E93] transition"
-                  title="Clear all logs"
+                  title="Clear activity logs"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -1612,39 +1937,73 @@ export default function DashboardPage() {
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="border-b border-[#24242A] text-[#8E8E93]">
-                    <th className="py-2.5 px-3">Level</th>
-                    <th className="py-2.5 px-3">Event</th>
-                    <th className="py-2.5 px-3">Time</th>
+                    <th className="py-2.5 px-3">Device</th>
+                    <th className="py-2.5 px-3">What Happened</th>
+                    <th className="py-2.5 px-3 text-right">Time</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#202026]">
-                  {logs.slice(0, 7).map((log, i) => (
-                    <tr key={i} className="hover:bg-[#1A1A20] transition">
-                      <td className="py-2.5 px-3">
-                        <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                            log.level === "warn" || log.severity === "warning"
-                              ? "bg-amber-500/10 text-amber-400"
-                              : log.level === "error" || log.severity === "error"
-                              ? "bg-rose-500/10 text-rose-400"
-                              : "bg-emerald-500/10 text-emerald-400"
-                          }`}
-                        >
-                          {log.level || log.severity || "info"}
-                        </span>
+                  {moduleActivityEntries.slice(0, 7).map((entry) => (
+                    <tr key={entry.id} className="hover:bg-[#1A1A20] transition">
+                      <td className="py-2.5 px-3 align-top">
+                        <div className="flex flex-col">
+                          <span className="text-white font-medium truncate max-w-[140px]" title={entry.deviceName}>
+                            {entry.deviceName}
+                          </span>
+                          <div className="flex items-center space-x-1.5 mt-0.5">
+                            <span
+                              className={`px-1.5 py-0.2 rounded text-[10px] font-semibold ${
+                                entry.isActuator
+                                  ? "bg-amber-500/10 text-amber-300"
+                                  : "bg-cyan-500/10 text-cyan-300"
+                              }`}
+                            >
+                              {entry.deviceTypeLabel}
+                            </span>
+                            {entry.deviceSubLabel && (
+                              <span className="text-[10px] font-mono text-[#6E6E73]">
+                                {entry.deviceSubLabel}
+                              </span>
+                            )}
+                          </div>
+                        </div>
                       </td>
-                      <td className="py-2.5 px-3 text-[#A1A1A6] truncate max-w-[220px]" title={log.message}>
-                        {log.message}
+                      <td className="py-2.5 px-3 align-top">
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[#D1D1D6] line-clamp-2 max-w-[240px]" title={entry.whatHappened}>
+                            {entry.whatHappened}
+                          </span>
+                          <div>
+                            <span
+                              className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
+                                entry.status === "failed"
+                                  ? "bg-rose-500/10 text-rose-400"
+                                  : entry.status === "warning" || entry.status === "pending"
+                                  ? "bg-amber-500/10 text-amber-400"
+                                  : entry.status === "dispatched"
+                                  ? "bg-cyan-500/10 text-cyan-300"
+                                  : "bg-emerald-500/10 text-emerald-400"
+                              }`}
+                            >
+                              {entry.status}
+                            </span>
+                          </div>
+                        </div>
                       </td>
-                      <td className="py-2.5 px-3 text-[#6E6E73] whitespace-nowrap">
-                        {new Date(log.timestamp).toLocaleTimeString()}
+                      <td
+                        className="py-2.5 px-3 text-[#6E6E73] whitespace-nowrap text-right align-top"
+                        title={new Date(entry.timestamp).toLocaleString()}
+                      >
+                        {new Date(entry.timestamp).toLocaleTimeString()}
                       </td>
                     </tr>
                   ))}
-                  {logs.length === 0 && (
+                  {moduleActivityEntries.length === 0 && (
                     <tr>
                       <td colSpan={3} className="py-8 text-center text-[#6E6E73]">
-                        No system logs recorded.
+                        {activityFilter === "actuators"
+                          ? "No actuator activity recorded yet."
+                          : "No module or actuator activity recorded yet."}
                       </td>
                     </tr>
                   )}
@@ -1666,7 +2025,11 @@ export default function DashboardPage() {
           <div className="bg-[#141417] border border-emerald-500/50 rounded-2xl p-6 w-full max-w-lg shadow-2xl animate-in zoom-in-95">
             <div className="flex items-center space-x-2 text-emerald-400 mb-2">
               <CheckCircle2 className="w-5 h-5" />
-              <h3 className="text-base font-semibold text-white">Sensor Module Successfully Registered!</h3>
+              <h3 className="text-base font-semibold text-white">
+                {showProvisionedSuccess.moduleCategory === "actuator"
+                  ? "Actuator Successfully Registered!"
+                  : "Sensor Module Successfully Registered!"}
+              </h3>
             </div>
             <p className="text-xs text-[#8E8E93] mb-4">
               Registered to <strong className="text-white">{showProvisionedSuccess.greenhouseName}</strong> (Crop: <strong className="text-emerald-400">{showProvisionedSuccess.plant}</strong>) at <strong className="text-white">{showProvisionedSuccess.companyLocation}</strong>.
@@ -1875,17 +2238,60 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* 3. REGISTER SENSOR MODULE MODAL */}
+      {/* 3. REGISTER MODULE MODAL (Sensor Module & Actuator Registrations) */}
       {showRegisterModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#141417] border border-[#282830] rounded-2xl p-6 w-full max-w-md shadow-2xl">
-            <h3 className="text-base font-semibold text-white mb-1 flex items-center space-x-2">
-              <Cpu className="w-4 h-4 text-emerald-400" />
-              <span>Register Sensor Module</span>
-            </h3>
-            <p className="text-xs text-[#8E8E93] mb-4">
-              Pre-register this module so its telemetry is linked to a Greenhouse and not mixed with other nodes.
-            </p>
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-[#141417] border border-[#282830] rounded-2xl p-6 w-full max-w-2xl shadow-2xl my-8">
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <h3 className="text-base font-semibold text-white mb-1 flex items-center space-x-2">
+                  {registerModuleTab === "actuator" ? (
+                    <Power className="w-4 h-4 text-cyan-400" />
+                  ) : (
+                    <Cpu className="w-4 h-4 text-emerald-400" />
+                  )}
+                  <span>Register Module</span>
+                </h3>
+                <p className="text-xs text-[#8E8E93]">
+                  Register a sensor module or actuator and view existing registrations linked to your greenhouses.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRegisterModal(false)}
+                className="text-[#8E8E93] hover:text-white text-xs px-2 py-1 rounded-lg hover:bg-[#202026]"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Module Category Switcher */}
+            <div className="grid grid-cols-2 gap-2 p-1 bg-[#0E0E12] border border-[#26262E] rounded-xl mb-4">
+              <button
+                type="button"
+                onClick={() => setRegisterModuleTab("sensor")}
+                className={`py-2 px-3 rounded-lg text-xs font-semibold transition flex items-center justify-center space-x-2 ${
+                  registerModuleTab === "sensor"
+                    ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm"
+                    : "text-[#8E8E93] hover:text-white"
+                }`}
+              >
+                <Cpu className="w-3.5 h-3.5" />
+                <span>Sensor Module Registration</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRegisterModuleTab("actuator")}
+                className={`py-2 px-3 rounded-lg text-xs font-semibold transition flex items-center justify-center space-x-2 ${
+                  registerModuleTab === "actuator"
+                    ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm"
+                    : "text-[#8E8E93] hover:text-white"
+                }`}
+              >
+                <Power className="w-3.5 h-3.5" />
+                <span>Actuator Registration</span>
+              </button>
+            </div>
 
             <form onSubmit={handleRegisterDevice} className="space-y-3.5">
               <div>
@@ -1908,45 +2314,97 @@ export default function DashboardPage() {
 
               <div>
                 <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
-                  Sensor Module Friendly Name *
+                  {registerModuleTab === "actuator"
+                    ? "Actuator Friendly Name *"
+                    : "Sensor Module Friendly Name *"}
                 </label>
                 <input
                   type="text"
                   value={newDeviceName}
                   onChange={(e) => setNewDeviceName(e.target.value)}
-                  placeholder="e.g. Bed A Sensor Module"
+                  placeholder={
+                    registerModuleTab === "actuator"
+                      ? "e.g. Exhaust Fan 01"
+                      : "e.g. Bed A Sensor Module"
+                  }
                   required
                   className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white placeholder-[#5A5A60] focus:outline-none focus:border-emerald-500/60"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
-                    Sensor Module
-                  </label>
-                  <select
-                    value={newDeviceSensorType}
-                    onChange={(e) => setNewDeviceSensorType(e.target.value)}
-                    className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500/60"
-                  >
-                    <option value="fc28">All Modules + FC-28 Soil Moisture</option>
-                    <option value="md0869">All Modules + MD0869 Soil Moisture</option>
-                  </select>
+              {registerModuleTab === "sensor" ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
+                      Sensor Module
+                    </label>
+                    <select
+                      value={newDeviceSensorType}
+                      onChange={(e) => setNewDeviceSensorType(e.target.value)}
+                      className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500/60"
+                    >
+                      <option value="fc28">All Modules + FC-28 Soil Moisture</option>
+                      <option value="md0869">All Modules + MD0869 Soil Moisture</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
+                      Zone / Bed Location
+                    </label>
+                    <input
+                      type="text"
+                      value={newDeviceLocation}
+                      onChange={(e) => setNewDeviceLocation(e.target.value)}
+                      placeholder="e.g. Zone 1 - Canopy"
+                      className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white placeholder-[#5A5A60] focus:outline-none focus:border-emerald-500/60"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
-                    Zone / Bed Location
-                  </label>
-                  <input
-                    type="text"
-                    value={newDeviceLocation}
-                    onChange={(e) => setNewDeviceLocation(e.target.value)}
-                    placeholder="e.g. Zone 1 - Canopy"
-                    className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white placeholder-[#5A5A60] focus:outline-none focus:border-emerald-500/60"
-                  />
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
+                      Actuator Type
+                    </label>
+                    <select
+                      value={newDeviceActuatorType}
+                      onChange={(e) => setNewDeviceActuatorType(e.target.value)}
+                      className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/60"
+                    >
+                      <option value="fan">Cooling / Exhaust Fan</option>
+                      <option value="pump">Water / Nutrient Pump</option>
+                      <option value="irrigation">Irrigation Valve</option>
+                      <option value="light">Grow Light</option>
+                      <option value="heater">Heater</option>
+                      <option value="relay">Generic Relay</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
+                      Sub-Node ID (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={newDeviceSubNodeId}
+                      onChange={(e) => setNewDeviceSubNodeId(e.target.value)}
+                      placeholder="e.g. sn-0001 / fan-01"
+                      className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-[#5A5A60] focus:outline-none focus:border-cyan-500/60"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
+                      Zone / Bed Location
+                    </label>
+                    <input
+                      type="text"
+                      value={newDeviceLocation}
+                      onChange={(e) => setNewDeviceLocation(e.target.value)}
+                      placeholder="e.g. Zone 1 - Roof"
+                      className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white placeholder-[#5A5A60] focus:outline-none focus:border-cyan-500/60"
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div>
                 <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
@@ -1961,7 +2419,7 @@ export default function DashboardPage() {
                 />
               </div>
 
-              <div className="flex justify-end space-x-2 pt-3">
+              <div className="flex justify-end space-x-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowRegisterModal(false)}
@@ -1972,12 +2430,104 @@ export default function DashboardPage() {
                 <button
                   type="submit"
                   disabled={isRegistering}
-                  className="px-4 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white rounded-lg text-xs font-medium shadow-md shadow-emerald-500/20 transition disabled:opacity-50"
+                  className={`px-4 py-1.5 text-white rounded-lg text-xs font-medium shadow-md transition disabled:opacity-50 ${
+                    registerModuleTab === "actuator"
+                      ? "bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 shadow-cyan-500/20"
+                      : "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 shadow-emerald-500/20"
+                  }`}
                 >
-                  {isRegistering ? "Registering..." : "Register Sensor Module"}
+                  {isRegistering
+                    ? "Registering..."
+                    : registerModuleTab === "actuator"
+                    ? "Register Actuator"
+                    : "Register Sensor Module"}
                 </button>
               </div>
             </form>
+
+            {/* Current Registrations Inside Register Module */}
+            {(() => {
+              const sensorRegs = allDevices.filter((d) => getModuleCategory(d) === "sensor");
+              const actuatorRegs = allDevices.filter((d) => getModuleCategory(d) === "actuator");
+
+              return (
+                <div className="mt-5 pt-4 border-t border-[#26262E] grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Sensor Module Registrations */}
+                  <div className="bg-[#0E0E12] border border-[#22222A] rounded-xl p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[11px] font-semibold text-emerald-400 flex items-center space-x-1.5">
+                        <Cpu className="w-3.5 h-3.5" />
+                        <span>Sensor Module Registrations</span>
+                      </span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 font-bold">
+                        {sensorRegs.length}
+                      </span>
+                    </div>
+                    <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                      {sensorRegs.length === 0 ? (
+                        <p className="text-[11px] text-[#6E6E73] py-2">No sensor modules registered yet.</p>
+                      ) : (
+                        sensorRegs.map((d) => (
+                          <div
+                            key={d.deviceId}
+                            className="bg-[#16161B] border border-[#24242C] rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2"
+                          >
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium text-white truncate">{d.name}</p>
+                              <p className="text-[10px] text-[#8E8E93] truncate">
+                                {d.greenhouseName || "Greenhouse"} • {d.sensorType || "fc28"}
+                              </p>
+                            </div>
+                            <code className="text-[10px] font-mono text-emerald-400 shrink-0">
+                              {d.deviceId.slice(0, 8)}…
+                            </code>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Actuator Registrations */}
+                  <div className="bg-[#0E0E12] border border-[#22222A] rounded-xl p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[11px] font-semibold text-cyan-300 flex items-center space-x-1.5">
+                        <Power className="w-3.5 h-3.5" />
+                        <span>Actuator Registrations</span>
+                      </span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 font-bold">
+                        {actuatorRegs.length}
+                      </span>
+                    </div>
+                    <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                      {actuatorRegs.length === 0 ? (
+                        <p className="text-[11px] text-[#6E6E73] py-2">No actuators registered yet.</p>
+                      ) : (
+                        actuatorRegs.map((d) => {
+                          const meta = getActuatorMeta(d);
+                          return (
+                            <div
+                              key={d.deviceId}
+                              className="bg-[#16161B] border border-[#24242C] rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2"
+                            >
+                              <div className="min-w-0">
+                                <p className="text-xs font-medium text-white truncate">{d.name}</p>
+                                <p className="text-[10px] text-[#8E8E93] truncate">
+                                  {d.greenhouseName || "Greenhouse"} • {meta.actuatorType}
+                                  {meta.subNodeId ? ` (${meta.subNodeId})` : ""}
+                                </p>
+                              </div>
+                              <code className="text-[10px] font-mono text-cyan-300 shrink-0">
+                                {d.deviceId.slice(0, 8)}…
+                              </code>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}

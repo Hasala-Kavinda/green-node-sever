@@ -9,7 +9,10 @@ export interface IDevice extends Document {
   greenhouseId: string;            // ID of assigned greenhouse, e.g. "greenhouse-01"
   greenhouseName: string;          // Cached greenhouse name, e.g. "Greenhouse 01"
   plant: string;                   // Crop growing in greenhouse, e.g. "Heirloom Tomatoes"
-  sensorType: string;              // 'fc28' | 'md0869' | 'combo' | 'generic'
+  moduleCategory?: 'sensor' | 'actuator'; // 'sensor' | 'actuator'
+  sensorType: string;              // 'fc28' | 'md0869' | 'combo' | 'generic' | 'actuator'
+  actuatorType?: string;           // 'fan' | 'pump' | 'irrigation' | 'light' | 'heater' | 'relay' | 'generic'
+  subNodeId?: string;              // Optional sub-node ID for Hub CLI, e.g. "sn-0001" or "fan-01"
   isRegistered: boolean;           // True only when explicitly registered by admin
   location: string;                // Specific sub-zone/bed location
   ipAddress?: string;              // Local/LAN IP address of the ESP
@@ -86,10 +89,26 @@ const DeviceSchema: Schema = new Schema<IDevice>(
       default: 'Mixed Crops',
       trim: true
     },
+    moduleCategory: {
+      type: String,
+      enum: ['sensor', 'actuator'],
+      default: 'sensor',
+      index: true
+    },
     sensorType: {
       type: String,
       required: false,
       default: 'fc28',
+      trim: true
+    },
+    actuatorType: {
+      type: String,
+      required: false,
+      trim: true
+    },
+    subNodeId: {
+      type: String,
+      required: false,
       trim: true
     },
     isRegistered: {

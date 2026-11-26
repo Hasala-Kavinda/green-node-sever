@@ -63,7 +63,10 @@ export interface Device {
   greenhouseId?: string;
   greenhouseName?: string;
   plant?: string;
+  moduleCategory?: "sensor" | "actuator";
   sensorType?: string;
+  actuatorType?: string;
+  subNodeId?: string;
   location?: string;
   wifiSsid?: string;
   isOnline?: boolean;
@@ -234,7 +237,10 @@ export async function registerDevice(data: {
   deviceId?: string;
   name?: string;
   greenhouseId?: string;
+  moduleCategory?: "sensor" | "actuator";
   sensorType?: string;
+  actuatorType?: string;
+  subNodeId?: string;
   location?: string;
 }): Promise<Device> {
   const res = await fetch(`${getBackendUrl()}/api/devices`, {
@@ -244,7 +250,7 @@ export async function registerDevice(data: {
   });
   if (!res.ok) {
     const err = await res.json();
-    throw new Error(err.error || "Failed to register sensor module");
+    throw new Error(err.error || "Failed to register module");
   }
   const json = await res.json();
   return json.data;
