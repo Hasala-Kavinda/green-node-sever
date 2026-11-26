@@ -203,7 +203,7 @@ export default function NewRegistersPage() {
         greenhouseId: newDeviceGreenhouseId,
         location: newDeviceLocation.trim() || undefined,
         moduleCategory,
-        sensorType: isActuator ? "actuator" : newDeviceSensorType,
+        sensorType: isActuator ? "generic" : newDeviceSensorType,
         actuatorType: isActuator ? newDeviceActuatorType : undefined,
         subNodeId: newDeviceSubNodeId.trim() || undefined,
       });

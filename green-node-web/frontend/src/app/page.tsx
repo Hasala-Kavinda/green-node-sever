@@ -35,6 +35,8 @@ import {
   HubCommandRecord,
 } from "@/lib/api";
 import HubCommandPanel from "@/components/HubCommandPanel";
+import ActuatorQuickControls from "@/components/ActuatorQuickControls";
+import SubNodePairingAndMap from "@/components/SubNodePairingAndMap";
 import {
   Leaf,
   Cpu,
@@ -1576,9 +1578,22 @@ export default function DashboardPage() {
                           })}
                         </div>
 
-                        {/* Right Column: Selected actuator details */}
-                        <div className="lg:col-span-8">
+                        {/* Middle Column: Selected actuator details */}
+                        <div className="lg:col-span-4">
                           {selectedActuator ? renderModuleCard(selectedActuator) : null}
+                        </div>
+
+                        {/* Right Column: Actuator Power Control & Report Interval Config */}
+                        <div className="lg:col-span-4">
+                          {selectedActuator ? (
+                            <ActuatorQuickControls
+                              defaultSubNodeId={getActuatorMeta(selectedActuator).subNodeId}
+                              onNotify={(msg) => {
+                                setFeedbackMsg(msg);
+                                setTimeout(() => setFeedbackMsg(null), 4000);
+                              }}
+                            />
+                          ) : null}
                         </div>
                       </div>
                     )}
@@ -1587,12 +1602,26 @@ export default function DashboardPage() {
               </div>
             );
           })()}
+          {/* 3. SUB-NODE PAIRING WINDOW & 4. SUB-NODE TO DASHBOARD UUID MAP */}
+          <SubNodePairingAndMap
+            devices={allDevices}
+            focusedDeviceId={focusedDeviceId}
+            liveCommandUpdate={liveHubCmdUpdate}
+            onNotify={(msg) => {
+              setFeedbackMsg(msg);
+              setTimeout(() => setFeedbackMsg(null), 4000);
+            }}
+            onCommandCreated={(record) => {
+              setLiveHubCmdUpdate((prev) => ({
+                seq: (prev?.seq ?? 0) + 1,
+                record,
+              }));
+            }}
+          />
         </section>
 
         {/* HUB CLI & ACTUATOR CONTROL PANEL */}
         <HubCommandPanel
-          devices={allDevices}
-          focusedDeviceId={focusedDeviceId}
           liveCommandUpdate={liveHubCmdUpdate}
           onNotify={(msg) => {
             setFeedbackMsg(msg);
