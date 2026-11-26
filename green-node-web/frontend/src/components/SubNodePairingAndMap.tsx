@@ -85,26 +85,26 @@ export default function SubNodePairingAndMap({
   return (
     <div className="space-y-8 pt-2">
       {/* 3. SUB-NODE PAIRING WINDOW */}
-      <div className="space-y-3">
+      <div className="space-y-4">
         <div className="flex items-center space-x-2 text-sm font-semibold text-cyan-300 uppercase tracking-wider">
           <Radio className="w-4 h-4" />
           <span>Sub-Node Pairing Window</span>
         </div>
 
-        <div className="bg-[#141417] border border-[#282830] rounded-2xl p-4 space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="bg-[#141417] border border-[#282830] rounded-2xl p-5 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h4 className="text-xs font-semibold text-white">Pairing Configuration</h4>
-              <code className="text-[10px] text-[#8E8E93]">pair &lt;kind&gt; &lt;name&gt; | cancel</code>
+              <h4 className="text-base font-semibold text-white">Pairing Configuration</h4>
+              <code className="text-xs text-[#8E8E93]">pair &lt;kind&gt; &lt;name&gt; | cancel</code>
             </div>
 
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
               {(["actuator", "sensor", "irrigation"] as const).map((k) => (
                 <button
                   key={k}
                   type="button"
                   onClick={() => setPairKind(k)}
-                  className={`px-2.5 py-1 rounded text-xs font-semibold capitalize border transition ${
+                  className={`px-3 py-1.5 rounded-lg text-sm font-semibold capitalize border transition ${
                     pairKind === k
                       ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/40"
                       : "bg-[#18181D] text-[#8E8E93] border-[#282830] hover:text-white"
@@ -116,32 +116,32 @@ export default function SubNodePairingAndMap({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-[11px] text-[#8E8E93] mb-1">Node Name (no spaces)</label>
+              <label className="block text-xs font-medium text-[#8E8E93] mb-1.5">Node Name (no spaces)</label>
               <input
                 type="text"
                 maxLength={15}
                 value={pairName}
                 onChange={(e) => setPairName(e.target.value.replace(/\s+/g, "-"))}
                 placeholder="fan-01"
-                className="w-full bg-[#18181D] border border-[#2C2C34] rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-cyan-500/60"
+                className="w-full bg-[#18181D] border border-[#2C2C34] rounded-xl px-3.5 py-2 text-sm font-mono text-white focus:outline-none focus:border-cyan-500/60"
               />
             </div>
             <div>
-              <label className="block text-[11px] text-[#8E8E93] mb-1">Window (sec)</label>
+              <label className="block text-xs font-medium text-[#8E8E93] mb-1.5">Window (sec)</label>
               <input
                 type="number"
                 min={5}
                 max={600}
                 value={pairSeconds}
                 onChange={(e) => setPairSeconds(Number(e.target.value) || 120)}
-                className="w-full bg-[#18181D] border border-[#2C2C34] rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-cyan-500/60"
+                className="w-full bg-[#18181D] border border-[#2C2C34] rounded-xl px-3.5 py-2 text-sm font-mono text-white focus:outline-none focus:border-cyan-500/60"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2.5 pt-1">
+          <div className="grid grid-cols-2 gap-3 pt-1">
             <button
               type="button"
               disabled={!pairName.trim() || busyKey === "pair"}
@@ -153,9 +153,9 @@ export default function SubNodePairingAndMap({
                   seconds: pairSeconds,
                 })
               }
-              className="py-2 px-3 bg-cyan-500/20 hover:bg-cyan-500 hover:text-white text-cyan-300 border border-cyan-500/30 disabled:opacity-50 rounded-lg text-xs font-semibold transition flex items-center justify-center space-x-1.5"
+              className="py-2.5 px-4 bg-cyan-500/20 hover:bg-cyan-500 hover:text-white text-cyan-300 border border-cyan-500/30 disabled:opacity-50 rounded-xl text-sm font-semibold transition flex items-center justify-center space-x-2"
             >
-              <Radio className="w-3.5 h-3.5" />
+              <Radio className="w-4 h-4" />
               <span>{busyKey === "pair" ? "Opening..." : "Open Pair Window"}</span>
             </button>
 
@@ -163,9 +163,9 @@ export default function SubNodePairingAndMap({
               type="button"
               disabled={busyKey === "cancel"}
               onClick={() => dispatch("cancel", { type: "cancel" })}
-              className="py-2 px-3 bg-[#1C1C22] hover:bg-amber-500/20 hover:text-amber-300 hover:border-amber-500/40 text-[#C7C7CC] border border-[#303038] disabled:opacity-50 rounded-lg text-xs font-semibold transition flex items-center justify-center space-x-1.5"
+              className="py-2.5 px-4 bg-[#1C1C22] hover:bg-amber-500/20 hover:text-amber-300 hover:border-amber-500/40 text-[#C7C7CC] border border-[#303038] disabled:opacity-50 rounded-xl text-sm font-semibold transition flex items-center justify-center space-x-2"
             >
-              <XCircle className="w-3.5 h-3.5" />
+              <XCircle className="w-4 h-4" />
               <span>{busyKey === "cancel" ? "Cancelling..." : "Cancel Pairing"}</span>
             </button>
           </div>
@@ -173,49 +173,49 @@ export default function SubNodePairingAndMap({
       </div>
 
       {/* 4. SUB-NODE TO DASHBOARD UUID MAP */}
-      <div className="space-y-3">
+      <div className="space-y-4">
         <div className="flex items-center space-x-2 text-sm font-semibold text-amber-300 uppercase tracking-wider">
           <Link2 className="w-4 h-4" />
           <span>Sub-Node to Dashboard UUID Map</span>
         </div>
 
-        <div className="bg-[#141417] border border-[#282830] rounded-2xl p-4 space-y-3">
-          <div className="flex items-center justify-between">
+        <div className="bg-[#141417] border border-[#282830] rounded-2xl p-5 space-y-4">
+          <div className="flex items-center justify-between gap-3">
             <div>
-              <h4 className="text-xs font-semibold text-white">Bind Sub-Node Mapping</h4>
-              <code className="text-[10px] text-[#8E8E93]">map &lt;sn-id&gt; &lt;uuid&gt; | maps</code>
+              <h4 className="text-base font-semibold text-white">Bind Sub-Node Mapping</h4>
+              <code className="text-xs text-[#8E8E93]">map &lt;sn-id&gt; &lt;uuid&gt; | maps</code>
             </div>
             <button
               type="button"
               disabled={busyKey === "maps"}
               onClick={() => dispatch("maps", { type: "maps" })}
-              className="px-2.5 py-1 bg-[#1C1C22] hover:bg-[#282830] text-[11px] font-medium text-[#C7C7CC] hover:text-white rounded-lg border border-[#303038] transition flex items-center space-x-1"
+              className="px-3 py-1.5 bg-[#1C1C22] hover:bg-[#282830] text-xs font-semibold text-[#C7C7CC] hover:text-white rounded-xl border border-[#303038] transition flex items-center space-x-1.5"
             >
-              <ListChecks className="w-3 h-3 text-amber-400" />
+              <ListChecks className="w-3.5 h-3.5 text-amber-400" />
               <span>{busyKey === "maps" ? "Requesting..." : "List Maps"}</span>
             </button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 items-end">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
             <div>
-              <label className="block text-[11px] text-[#8E8E93] mb-1">Sub-Node ID</label>
+              <label className="block text-xs font-medium text-[#8E8E93] mb-1.5">Sub-Node ID</label>
               <input
                 type="text"
                 value={mapSnId}
                 onChange={(e) => setMapSnId(e.target.value)}
                 placeholder="sn-0001"
-                className="w-full bg-[#18181D] border border-[#2C2C34] rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-amber-500/60"
+                className="w-full bg-[#18181D] border border-[#2C2C34] rounded-xl px-3.5 py-2 text-sm font-mono text-white focus:outline-none focus:border-amber-500/60"
               />
             </div>
             <div className="sm:col-span-2">
-              <label className="block text-[11px] text-[#8E8E93] mb-1">Registered Device UUID</label>
-              <div className="flex gap-2">
+              <label className="block text-xs font-medium text-[#8E8E93] mb-1.5">Registered Device UUID</label>
+              <div className="flex gap-2.5">
                 <select
                   value={devices.some((d) => d.deviceId === mapUuid) ? mapUuid : ""}
                   onChange={(e) => {
                     if (e.target.value) setMapUuid(e.target.value);
                   }}
-                  className="flex-1 bg-[#18181D] border border-[#2C2C34] rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500/60 min-w-0"
+                  className="flex-1 bg-[#18181D] border border-[#2C2C34] rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500/60 min-w-0"
                 >
                   <option value="">-- Select Registered Module --</option>
                   {devices.map((d) => (
@@ -234,7 +234,7 @@ export default function SubNodePairingAndMap({
                       uuid: mapUuid.trim(),
                     })
                   }
-                  className="px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500 hover:text-black text-amber-300 border border-amber-500/30 disabled:opacity-50 rounded-lg text-xs font-semibold transition shrink-0"
+                  className="px-4 py-2 bg-amber-500/20 hover:bg-amber-500 hover:text-black text-amber-300 border border-amber-500/30 disabled:opacity-50 rounded-xl text-sm font-semibold transition shrink-0"
                 >
                   {busyKey === "map" ? "Mapping..." : "Bind Map"}
                 </button>
@@ -243,7 +243,7 @@ export default function SubNodePairingAndMap({
           </div>
 
           {hubStatus?.lastMapsDetails?.summary && (
-            <div className="text-[11px] font-mono bg-[#0B0B0E] border border-[#22222A] rounded-lg px-3 py-2 text-amber-200 break-all">
+            <div className="text-xs font-mono bg-[#0B0B0E] border border-[#22222A] rounded-xl px-3.5 py-2.5 text-amber-200 break-all">
               Hub maps: {hubStatus.lastMapsDetails.summary}
             </div>
           )}
