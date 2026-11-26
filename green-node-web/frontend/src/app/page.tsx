@@ -260,11 +260,39 @@ export default function DashboardPage() {
 
   const socketRef = useRef<WebSocket | null>(null);
   const focusedDeviceIdRef = useRef<string | null>(focusedDeviceId);
+  const hasUserSelectedModuleRef = useRef<boolean>(false);
 
   // Keep focusedDeviceIdRef updated for WebSocket and async closures
   useEffect(() => {
     focusedDeviceIdRef.current = focusedDeviceId;
   }, [focusedDeviceId]);
+
+  const baseDisplayedModules =
+    deviceViewFilter === "all"
+      ? selectedCompanyId === "all"
+        ? allDevices
+        : allDevices.filter((d) => d.companyId === selectedCompanyId)
+      : greenhouseDevices;
+
+  const displayedModules =
+    moduleCategoryFilter === "all"
+      ? baseDisplayedModules
+      : baseDisplayedModules.filter((d) => getModuleCategory(d) === moduleCategoryFilter);
+
+  // Default-select the top list item on initial load or when the current selection is filtered out
+  useEffect(() => {
+    if (displayedModules.length === 0) return;
+    const topDevice = displayedModules[0];
+    const inList = displayedModules.some((d) => d.deviceId === focusedDeviceId);
+
+    if ((!hasUserSelectedModuleRef.current || !inList) && focusedDeviceId !== topDevice.deviceId) {
+      setFocusedDeviceId(topDevice.deviceId);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("green_node_focused_device", topDevice.deviceId);
+      }
+      loadFocusedNodeData(topDevice.deviceId);
+    }
+  }, [displayedModules, focusedDeviceId]);
 
   // Auth Protection
   useEffect(() => {
@@ -1214,20 +1242,7 @@ export default function DashboardPage() {
 
           {/* Devices Grid */}
           {(() => {
-            const baseDisplayed =
-              deviceViewFilter === "all"
-                ? selectedCompanyId === "all"
-                  ? allDevices
-                  : allDevices.filter((d) => d.companyId === selectedCompanyId)
-                : greenhouseDevices;
-
-            const displayed =
-              moduleCategoryFilter === "all"
-                ? baseDisplayed
-                : baseDisplayed.filter((d) => getModuleCategory(d) === moduleCategoryFilter);
-
-            const sensorList = displayed.filter((d) => getModuleCategory(d) === "sensor");
-            const actuatorList = displayed.filter((d) => getModuleCategory(d) === "actuator");
+            const displayed = displayedModules;
 
             if (displayed.length === 0) {
               return (
@@ -1255,6 +1270,7 @@ export default function DashboardPage() {
               displayed.find((d) => d.deviceId === focusedDeviceId) || displayed[0] || null;
 
             const handleSelectModule = (dev: Device) => {
+              hasUserSelectedModuleRef.current = true;
               setFocusedDeviceId(dev.deviceId);
               if (typeof window !== "undefined") {
                 localStorage.setItem("green_node_focused_device", dev.deviceId);
@@ -1472,7 +1488,7 @@ export default function DashboardPage() {
                           key={dev.deviceId}
                           type="button"
                           onClick={() => handleSelectModule(dev)}
-                          className={`w-full text-left px-3.5 py-2.5 rounded-xl text-sm font-medium transition truncate border ${
+                          className={`w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl text-sm font-medium transition border ${
                             isSelected
                               ? isActuator
                                 ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/40"
@@ -1480,7 +1496,14 @@ export default function DashboardPage() {
                               : "bg-[#18181D] text-white border-transparent hover:border-[#3E3E48] hover:bg-[#1E1E25]"
                           }`}
                         >
-                          {dev.name}
+                          <span className="truncate">{dev.name}</span>
+                          <span
+                            title={dev.isOnline ? "Online" : "Offline"}
+                            aria-label={dev.isOnline ? "Online" : "Offline"}
+                            className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                              dev.isOnline ? "bg-emerald-400" : "bg-rose-500"
+                            }`}
+                          />
                         </button>
                       );
                     })}
