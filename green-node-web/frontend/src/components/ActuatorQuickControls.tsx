@@ -2,16 +2,18 @@
 
 import React, { useState, useEffect } from "react";
 import { Power, Sliders, Clock } from "lucide-react";
-import { sendHubCommand, CreateHubCommandPayload } from "@/lib/api";
+import { sendHubCommand, CreateHubCommandPayload, HubCommandRecord } from "@/lib/api";
 
 interface ActuatorQuickControlsProps {
   defaultSubNodeId?: string;
   onNotify: (msg: { type: "success" | "error"; text: string }) => void;
+  onCommandCreated?: (record: HubCommandRecord) => void;
 }
 
 export default function ActuatorQuickControls({
   defaultSubNodeId,
   onNotify,
+  onCommandCreated,
 }: ActuatorQuickControlsProps) {
   const [actNodeId, setActNodeId] = useState<string>(defaultSubNodeId || "sn-0001");
   const [actDuration, setActDuration] = useState<number>(300);
@@ -31,6 +33,7 @@ export default function ActuatorQuickControls({
     setBusyKey(key);
     try {
       const created = await sendHubCommand(payload);
+      onCommandCreated?.(created);
       onNotify({ type: "success", text: `Queued CLI command: "${created.cliString}"` });
     } catch (err: any) {
       onNotify({ type: "error", text: err.message || "Failed to queue hub command" });

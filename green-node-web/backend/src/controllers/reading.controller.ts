@@ -405,7 +405,7 @@ export class ReadingController {
         });
         return;
       }
-      res.status(500).json({
+      res.status(error.statusCode || 500).json({
         success: false,
         error: error.message || 'Internal Server Error'
       });
@@ -443,7 +443,7 @@ export class ReadingController {
         });
         return;
       }
-      res.status(500).json({
+      res.status(error.statusCode || 500).json({
         success: false,
         error: error.message || 'Internal Server Error'
       });

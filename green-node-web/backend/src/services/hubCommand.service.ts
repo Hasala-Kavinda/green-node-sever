@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { HubCommand, IHubCommand } from '../models/HubCommand.js';
+import { Device } from '../models/Device.js';
 import { broadcast } from './websocket.service.js';
 import { LoggerService } from './logger.service.js';
 import type { AckHubCommandInput, CreateHubCommandInput } from '../schemas/hubCommand.schema.js';
@@ -135,6 +136,24 @@ export class HubCommandService {
       runtimeState.lastHubId = cleanHubId;
     }
 
+    // Recover commands stuck in "dispatched" longer than 90s without hub acknowledgment
+    const staleCutoff = new Date(Date.now() - 90_000);
+    const staleFilter: Record<string, any> = {
+      status: 'dispatched',
+      dispatchedAt: { $lt: staleCutoff }
+    };
+    if (cleanHubId) {
+      staleFilter.$or = [{ hubId: 'default' }, { hubId: cleanHubId }];
+    }
+    const staleCommands = await HubCommand.find(staleFilter);
+    for (const stale of staleCommands) {
+      stale.status = 'failed';
+      stale.executedAt = new Date();
+      stale.resultMessage = 'Timed out waiting for hub acknowledgment';
+      await stale.save();
+      broadcast('hub_command_updated', stale.toObject());
+    }
+
     const maxBatch = Math.min(10, Math.max(1, limit));
     const filter: Record<string, any> = { status: 'pending' };
     if (cleanHubId) {
@@ -185,6 +204,23 @@ export class HubCommandService {
 
     await cmd.save();
 
+    // Sync Device.subNodeId when a `map` command executes successfully on the hub
+    if (
+      cmd.type === 'map' &&
+      input.status === 'executed' &&
+      cmd.payload?.uuid &&
+      cmd.payload?.snId
+    ) {
+      const updatedDevice = await Device.findOneAndUpdate(
+        { deviceId: String(cmd.payload.uuid).toLowerCase() },
+        { $set: { subNodeId: String(cmd.payload.snId).trim() } },
+        { new: true }
+      ).lean();
+      if (updatedDevice) {
+        broadcast('device_updated', updatedDevice);
+      }
+    }
+
     await LoggerService.recordLog({
       level: input.status === 'executed' ? 'success' : 'error',
       category: 'device',
@@ -204,6 +240,19 @@ export class HubCommandService {
   }
 
   static async getHubStatus() {
+    if (!runtimeState.lastMapsDetails) {
+      const latestMaps = await HubCommand.findOne({
+        type: 'maps',
+        status: 'executed',
+        details: { $exists: true, $ne: null }
+      })
+        .sort({ executedAt: -1, createdAt: -1 })
+        .lean();
+      if (latestMaps?.details) {
+        runtimeState.lastMapsDetails = latestMaps.details;
+      }
+    }
+
     const pendingCount = await HubCommand.countDocuments({ status: 'pending' });
     const now = Date.now();
     const lastPollMs = runtimeState.lastPollAt ? runtimeState.lastPollAt.getTime() : 0;
@@ -220,6 +269,7 @@ export class HubCommandService {
 
   static async clearCommands() {
     const result = await HubCommand.deleteMany({});
+    runtimeState.lastMapsDetails = null;
     broadcast('hub_commands_cleared', { deletedCount: result.deletedCount });
     return { deletedCount: result.deletedCount };
   }

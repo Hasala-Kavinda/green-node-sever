@@ -501,7 +501,11 @@ export class ReadingService {
           return {
             deviceId: d.deviceId,
             name: d.name,
+            greenhouseId: d.greenhouseId,
+            moduleCategory: d.moduleCategory,
             sensorType: d.sensorType,
+            actuatorType: d.actuatorType,
+            subNodeId: d.subNodeId,
             status: health.status,
             isOnline: health.isOnline,
             latestReading: d.latestReading
@@ -643,6 +647,11 @@ export class ReadingService {
     device.plant = greenhouse.plant;
     await device.save();
 
+    await Greenhouse.updateMany(
+      { greenhouseId: { $ne: normalizedGhId }, assignedDeviceIds: normalizedDeviceId },
+      { $pull: { assignedDeviceIds: normalizedDeviceId } }
+    );
+
     if (!greenhouse.assignedDeviceIds.includes(normalizedDeviceId)) {
       greenhouse.assignedDeviceIds.push(normalizedDeviceId);
       await greenhouse.save();
@@ -655,6 +664,8 @@ export class ReadingService {
       message: `Assigned Sensor Module "${device.name}" (${normalizedDeviceId}) to Greenhouse "${greenhouse.name}" (${greenhouse.plant})`,
       details: { greenhouseId: normalizedGhId, deviceId: normalizedDeviceId }
     });
+
+    broadcast('device_updated', device.toObject());
 
     return { greenhouse, device };
   }
@@ -673,10 +684,9 @@ export class ReadingService {
     // Look up greenhouse
     let greenhouse = await Greenhouse.findOne({ greenhouseId });
     if (!greenhouse) {
-      // Find any existing greenhouse or seed
-      greenhouse = await Greenhouse.findOne();
-      if (!greenhouse) {
-        // Create default company and greenhouse
+      const totalGreenhouses = await Greenhouse.countDocuments();
+      if (totalGreenhouses === 0) {
+        // Seed default company and greenhouse only on an empty database
         const company = await Company.findOneAndUpdate(
           { companyId: 'comp-ceylon-agro' },
           { $setOnInsert: { name: 'Ceylon Agri Corp', location: 'Colombo Agri Facility' } },
@@ -691,8 +701,25 @@ export class ReadingService {
           plant: 'Heirloom Tomatoes',
           assignedDeviceIds: [deviceId]
         });
+      } else if (greenhouseId === 'greenhouse-01') {
+        greenhouse = await Greenhouse.findOne();
+      } else {
+        const err: any = new Error(`Greenhouse "${greenhouseId}" not found. Select an existing greenhouse first.`);
+        err.statusCode = 404;
+        throw err;
       }
     }
+
+    if (!greenhouse) {
+      const err: any = new Error('No registered greenhouse available.');
+      err.statusCode = 404;
+      throw err;
+    }
+
+    await Greenhouse.updateMany(
+      { greenhouseId: { $ne: greenhouse.greenhouseId }, assignedDeviceIds: deviceId },
+      { $pull: { assignedDeviceIds: deviceId } }
+    );
 
     if (!greenhouse.assignedDeviceIds.includes(deviceId)) {
       greenhouse.assignedDeviceIds.push(deviceId);
@@ -778,17 +805,44 @@ export class ReadingService {
    * Device Management: Update existing device metadata
    */
   static async updateDevice(deviceId: string, input: UpdateDeviceInput): Promise<IDevice | null> {
+    const normalizedDeviceId = deviceId.toLowerCase();
+    const updateFields: Record<string, any> = { ...input };
+
+    if (input.greenhouseId) {
+      const targetGhId = input.greenhouseId.toLowerCase();
+      const greenhouse = await Greenhouse.findOne({ greenhouseId: targetGhId });
+      if (!greenhouse) {
+        const err: any = new Error(`Greenhouse "${input.greenhouseId}" not found.`);
+        err.statusCode = 404;
+        throw err;
+      }
+      updateFields.greenhouseId = greenhouse.greenhouseId;
+      updateFields.greenhouseName = greenhouse.name;
+      updateFields.companyId = greenhouse.companyId;
+      updateFields.companyName = greenhouse.companyName;
+      updateFields.companyLocation = greenhouse.companyLocation;
+      updateFields.plant = greenhouse.plant;
+    }
+
     const updated = await Device.findOneAndUpdate(
-      { deviceId: deviceId.toLowerCase() },
-      { $set: input },
+      { deviceId: normalizedDeviceId },
+      { $set: updateFields },
       { new: true }
     );
 
-    if (updated && input.greenhouseId) {
-      await Greenhouse.updateOne(
-        { greenhouseId: input.greenhouseId.toLowerCase() },
-        { $addToSet: { assignedDeviceIds: deviceId.toLowerCase() } }
+    if (updated && updateFields.greenhouseId) {
+      await Greenhouse.updateMany(
+        { greenhouseId: { $ne: updateFields.greenhouseId }, assignedDeviceIds: normalizedDeviceId },
+        { $pull: { assignedDeviceIds: normalizedDeviceId } }
       );
+      await Greenhouse.updateOne(
+        { greenhouseId: updateFields.greenhouseId },
+        { $addToSet: { assignedDeviceIds: normalizedDeviceId } }
+      );
+    }
+
+    if (updated) {
+      broadcast('device_updated', updated.toObject());
     }
 
     return updated;
@@ -837,12 +891,17 @@ export class ReadingService {
    * Device Management: Delete / unregister a device
    */
   static async deleteDevice(deviceId: string) {
-    const dev = await Device.findOneAndDelete({ deviceId: deviceId.toLowerCase() });
+    const normalizedDeviceId = deviceId.toLowerCase();
+    const dev = await Device.findOneAndDelete({ deviceId: normalizedDeviceId });
     if (dev) {
       await Greenhouse.updateMany(
-        { assignedDeviceIds: deviceId.toLowerCase() },
-        { $pull: { assignedDeviceIds: deviceId.toLowerCase() } }
+        { assignedDeviceIds: normalizedDeviceId },
+        { $pull: { assignedDeviceIds: normalizedDeviceId } }
       );
+      broadcast('device_deleted', {
+        deviceId: dev.deviceId,
+        greenhouseId: dev.greenhouseId
+      });
     }
     return dev;
   }

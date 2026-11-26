@@ -196,8 +196,11 @@ export default function AnalyticsGreenhousesPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {greenhouses.map((gh) => {
               const ov = overviews[gh.greenhouseId];
-              const ghDevices =
+              const rawGhDevices =
                 ov?.devices || devices.filter((d) => d.greenhouseId === gh.greenhouseId);
+              const ghDevices = rawGhDevices.filter(
+                (d) => d.moduleCategory !== "actuator" && d.sensorType !== "actuator"
+              );
               const onlineCount = ghDevices.filter((d) => d.isOnline).length;
               const tempVal = ov?.summary?.avgTemperature;
               const soilVal = ov?.summary?.avgSoilMoisture;

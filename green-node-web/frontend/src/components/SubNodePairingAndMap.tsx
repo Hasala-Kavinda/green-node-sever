@@ -43,10 +43,20 @@ export default function SubNodePairingAndMap({
   const [mapUuid, setMapUuid] = useState<string>(focusedDeviceId || "");
 
   useEffect(() => {
-    if (focusedDeviceId && !mapUuid) {
+    if (devices.length > 0 && mapUuid && !devices.some((d) => d.deviceId === mapUuid)) {
+      setMapUuid(
+        focusedDeviceId && devices.some((d) => d.deviceId === focusedDeviceId)
+          ? focusedDeviceId
+          : ""
+      );
+    } else if (
+      !mapUuid &&
+      focusedDeviceId &&
+      (devices.length === 0 || devices.some((d) => d.deviceId === focusedDeviceId))
+    ) {
       setMapUuid(focusedDeviceId);
     }
-  }, [focusedDeviceId, mapUuid]);
+  }, [devices, focusedDeviceId, mapUuid]);
 
   const loadHubStatus = useCallback(async () => {
     try {

@@ -5,29 +5,17 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import {
-  fetchCompanies,
-  createCompany,
   fetchGreenhouses,
   fetchGreenhouseOverview,
-  createGreenhouse,
-  assignDeviceToGreenhouse,
   fetchDevices,
-  registerDevice,
   deleteDevice,
   fetchReadings,
   fetchLatestReading,
-  fetchStats,
   fetchLogs,
   clearAllLogs,
   fetchHubCommands,
   clearHubCommands,
-  pingDevice,
-  pingKeepAlive,
-  sendTestReading,
   getWebSocketUrl,
-  getBackendUrl,
-  setBackendUrl,
-  Company,
   Greenhouse,
   Device,
   Reading,
@@ -38,42 +26,31 @@ import HubCommandPanel from "@/components/HubCommandPanel";
 import ActuatorQuickControls from "@/components/ActuatorQuickControls";
 import SubNodePairingAndMap from "@/components/SubNodePairingAndMap";
 import {
-  Leaf,
   Cpu,
   Activity,
-  Radio,
   Plus,
   RefreshCw,
-  LogOut,
   Settings,
   Trash2,
   CheckCircle2,
   XCircle,
-  AlertTriangle,
   Wifi,
-  ExternalLink,
-  Building2,
-  Warehouse,
   Copy,
   Check,
-  ShieldCheck,
-  Tag,
   Power,
 } from "lucide-react";
 
 export default function DashboardPage() {
-  const { isAuthenticated, isLoading, logout } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
 
   // Hierarchy State
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [selectedCompanyId, setSelectedCompanyId] = useState<string>(() => {
+  const [selectedCompanyId] = useState<string>(() => {
     if (typeof window !== "undefined") {
       return localStorage.getItem("green_node_selected_company") || "all";
     }
     return "all";
   });
-  const [greenhouses, setGreenhouses] = useState<Greenhouse[]>([]);
   const [activeGreenhouseId, setActiveGreenhouseId] = useState<string>(() => {
     if (typeof window !== "undefined") {
       return localStorage.getItem("green_node_active_greenhouse") || "";
@@ -117,9 +94,8 @@ export default function DashboardPage() {
   const [copiedDeviceId, setCopiedDeviceId] = useState<string | null>(null);
   const [focusedActuatorId, setFocusedActuatorId] = useState<string | null>(null);
   const [moduleCategoryFilter, setModuleCategoryFilter] = useState<"all" | "sensor" | "actuator">("all");
-  const [registerModuleTab, setRegisterModuleTab] = useState<"sensor" | "actuator">("sensor");
 
-  // Active Device Drilldown (Optional focus on a specific node within greenhouse)
+  // Active Sensor Drilldown
   const [focusedDeviceId, setFocusedDeviceId] = useState<string | null>(() => {
     if (typeof window !== "undefined") {
       return localStorage.getItem("green_node_focused_device") || null;
@@ -153,52 +129,11 @@ export default function DashboardPage() {
     }
     return [];
   });
-  const [statsData, setStatsData] = useState<any>(null);
 
   // System & Connection State
   const [logs, setLogs] = useState<SystemLog[]>([]);
   const [hubCommands, setHubCommands] = useState<HubCommandRecord[]>([]);
   const [activityFilter, setActivityFilter] = useState<"all" | "actuators">("all");
-  const [wsConnected, setWsConnected] = useState<boolean>(false);
-  const [backendStatus, setBackendStatus] = useState<"connected" | "sleeping" | "checking">("checking");
-  const [backendLatency, setBackendLatency] = useState<number | null>(null);
-
-  // Modals
-  const [showRegisterModal, setShowRegisterModal] = useState<boolean>(false);
-  const [showNewCompanyModal, setShowNewCompanyModal] = useState<boolean>(false);
-  const [showNewGreenhouseModal, setShowNewGreenhouseModal] = useState<boolean>(false);
-  const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
-  const [showProvisionedSuccess, setShowProvisionedSuccess] = useState<{
-    deviceId: string;
-    name: string;
-    greenhouseName: string;
-    companyLocation: string;
-    plant: string;
-    moduleCategory: "sensor" | "actuator";
-  } | null>(null);
-
-  // Form inputs for Company Registration
-  const [newCompanyName, setNewCompanyName] = useState<string>("");
-  const [newCompanyLocation, setNewCompanyLocation] = useState<string>("");
-  const [newCompanyDescription, setNewCompanyDescription] = useState<string>("");
-  const [isCreatingCompany, setIsCreatingCompany] = useState<boolean>(false);
-
-  // Form inputs for Greenhouse Registration (Under Registered Company)
-  const [newGhCompanyId, setNewGhCompanyId] = useState<string>("");
-  const [newGhName, setNewGhName] = useState<string>("");
-  const [newGhPlant, setNewGhPlant] = useState<string>("Heirloom Tomatoes");
-  const [newGhDescription, setNewGhDescription] = useState<string>("");
-  const [isCreatingGh, setIsCreatingGh] = useState<boolean>(false);
-
-  // Form inputs for Module Registration (Sensor & Actuator)
-  const [newDeviceName, setNewDeviceName] = useState<string>("");
-  const [newDeviceGreenhouseId, setNewDeviceGreenhouseId] = useState<string>("greenhouse-01");
-  const [newDeviceLocation, setNewDeviceLocation] = useState<string>("Zone 1 - Main Bed");
-  const [newDeviceSensorType, setNewDeviceSensorType] = useState<string>("fc28");
-  const [newDeviceActuatorType, setNewDeviceActuatorType] = useState<string>("fan");
-  const [newDeviceSubNodeId, setNewDeviceSubNodeId] = useState<string>("");
-  const [newDeviceId, setNewDeviceId] = useState<string>("");
-  const [isRegistering, setIsRegistering] = useState<boolean>(false);
 
   const getActuatorMetaMap = (): Record<string, { moduleCategory: "sensor" | "actuator"; actuatorType?: string; subNodeId?: string }> => {
     if (typeof window === "undefined") return {};
@@ -212,6 +147,7 @@ export default function DashboardPage() {
 
   const getModuleCategory = (dev: Device): "sensor" | "actuator" => {
     if (dev.moduleCategory === "actuator" || dev.sensorType === "actuator") return "actuator";
+    if (dev.moduleCategory === "sensor") return "sensor";
     const meta = getActuatorMetaMap()[dev.deviceId];
     return meta?.moduleCategory === "actuator" ? "actuator" : "sensor";
   };
@@ -224,10 +160,8 @@ export default function DashboardPage() {
     };
   };
 
-  // Settings & Utilities
-  const [apiUrlInput, setApiUrlInput] = useState<string>("");
+  // Feedback & Live Updates
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
-  const [copiedUuid, setCopiedUuid] = useState<boolean>(false);
   const [liveHubCmdUpdate, setLiveHubCmdUpdate] = useState<{
     seq: number;
     record?: HubCommandRecord;
@@ -236,7 +170,6 @@ export default function DashboardPage() {
 
   const socketRef = useRef<WebSocket | null>(null);
   const focusedDeviceIdRef = useRef<string | null>(focusedDeviceId);
-  const hasUserSelectedModuleRef = useRef<boolean>(false);
 
   // Keep focusedDeviceIdRef updated for WebSocket and async closures
   useEffect(() => {
@@ -255,20 +188,21 @@ export default function DashboardPage() {
       ? baseDisplayedModules
       : baseDisplayedModules.filter((d) => getModuleCategory(d) === moduleCategoryFilter);
 
-  // Default-select the top list item on initial load or when the current selection is filtered out
+  // Auto-select a valid sensor module only when none is focused or the focused sensor is filtered out
   useEffect(() => {
-    if (displayedModules.length === 0) return;
-    const topDevice = displayedModules[0];
-    const inList = displayedModules.some((d) => d.deviceId === focusedDeviceId);
+    const sensorModules = baseDisplayedModules.filter((d) => getModuleCategory(d) === "sensor");
+    if (sensorModules.length === 0) return;
 
-    if ((!hasUserSelectedModuleRef.current || !inList) && focusedDeviceId !== topDevice.deviceId) {
-      setFocusedDeviceId(topDevice.deviceId);
+    const inList = focusedDeviceId ? sensorModules.some((d) => d.deviceId === focusedDeviceId) : false;
+    if (!inList) {
+      const topSensor = sensorModules[0];
+      setFocusedDeviceId(topSensor.deviceId);
       if (typeof window !== "undefined") {
-        localStorage.setItem("green_node_focused_device", topDevice.deviceId);
+        localStorage.setItem("green_node_focused_device", topSensor.deviceId);
       }
-      loadFocusedNodeData(topDevice.deviceId);
+      loadFocusedNodeData(topSensor.deviceId);
     }
-  }, [displayedModules, focusedDeviceId]);
+  }, [baseDisplayedModules, focusedDeviceId]);
 
   // Auth Protection
   useEffect(() => {
@@ -277,35 +211,44 @@ export default function DashboardPage() {
     }
   }, [isAuthenticated, isLoading, router]);
 
-  // Initial Data Load
+  // Initial Data Load & WebSocket Subscription
   useEffect(() => {
     if (!isAuthenticated) return;
-    setApiUrlInput(getBackendUrl());
-    checkBackendHealth();
     loadHierarchy();
     loadLogs();
 
-    const keepAliveTimer = setInterval(() => {
-      checkBackendHealth();
-    }, 10 * 60 * 1000);
+    let disposed = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-    return () => clearInterval(keepAliveTimer);
+    const connectWs = () => {
+      if (disposed) return;
+      initWebSocket(() => {
+        if (!disposed) {
+          reconnectTimer = setTimeout(connectWs, 3000);
+        }
+      });
+    };
+
+    connectWs();
+
+    return () => {
+      disposed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (socketRef.current) {
+        socketRef.current.close();
+        socketRef.current = null;
+      }
+    };
   }, [isAuthenticated]);
 
   const loadHierarchy = async () => {
     try {
-      const [comps, ghs, devs] = await Promise.all([fetchCompanies(), fetchGreenhouses(), fetchDevices()]);
-      setCompanies(comps);
-      setGreenhouses(ghs);
-      if (devs && devs.length > 0) {
+      const [ghs, devs] = await Promise.all([fetchGreenhouses(), fetchDevices()]);
+      if (Array.isArray(devs)) {
         setAllDevices(devs);
         if (typeof window !== "undefined") {
           localStorage.setItem("green_node_cached_devices", JSON.stringify(devs));
         }
-      }
-
-      if (comps.length > 0 && !newGhCompanyId) {
-        setNewGhCompanyId(comps[0].companyId);
       }
 
       if (ghs.length > 0) {
@@ -315,7 +258,10 @@ export default function DashboardPage() {
         if (typeof window !== "undefined") {
           localStorage.setItem("green_node_active_greenhouse", targetGhId);
         }
-        loadGreenhouseData(targetGhId);
+        await loadGreenhouseData(targetGhId, devs);
+      } else {
+        setActiveGreenhouse(null);
+        setGreenhouseDevices([]);
       }
     } catch {
       // Backend may be sleeping
@@ -326,23 +272,16 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!isAuthenticated || !activeGreenhouseId) return;
     loadGreenhouseData(activeGreenhouseId);
-    initWebSocket();
-
-    return () => {
-      if (socketRef.current) {
-        socketRef.current.close();
-      }
-    };
   }, [activeGreenhouseId, isAuthenticated]);
 
-  const loadGreenhouseData = async (ghId: string) => {
+  const loadGreenhouseData = async (ghId: string, preloadedDevices?: Device[]) => {
     if (!ghId) return;
     try {
       const [overview, devs] = await Promise.all([
         fetchGreenhouseOverview(ghId),
-        fetchDevices(),
+        preloadedDevices ? Promise.resolve(preloadedDevices) : fetchDevices(),
       ]);
-      if (devs && devs.length > 0) {
+      if (Array.isArray(devs)) {
         setAllDevices(devs);
         if (typeof window !== "undefined") {
           localStorage.setItem("green_node_cached_devices", JSON.stringify(devs));
@@ -357,22 +296,26 @@ export default function DashboardPage() {
           localStorage.setItem("green_node_cached_gh_devices", JSON.stringify(ghDevs));
         }
 
-        // Preserve current focused device or restore saved device if valid
+        // Preserve current focused sensor or fall back to first available sensor
         const savedDevId = typeof window !== "undefined" ? localStorage.getItem("green_node_focused_device") : null;
-        const targetId = focusedDeviceId || savedDevId;
+        const targetId = focusedDeviceIdRef.current || savedDevId;
+        const ghSensors = ghDevs.filter((d) => getModuleCategory(d) === "sensor");
+        const allSensors = (devs || []).filter((d) => getModuleCategory(d) === "sensor");
 
-        const devInGh = ghDevs.find((d) => d.deviceId === targetId);
-        const devInAll = devs?.find((d) => d.deviceId === targetId);
+        const devInGh = ghSensors.find((d) => d.deviceId === targetId);
+        const devInAll = allSensors.find((d) => d.deviceId === targetId);
 
         let chosenDeviceId: string | null = null;
         if (devInGh) {
           chosenDeviceId = devInGh.deviceId;
-        } else if (ghDevs.length > 0) {
-          chosenDeviceId = ghDevs[0].deviceId;
+        } else if (deviceViewFilter === "all" && devInAll) {
+          chosenDeviceId = devInAll.deviceId;
+        } else if (ghSensors.length > 0) {
+          chosenDeviceId = ghSensors[0].deviceId;
         } else if (devInAll) {
           chosenDeviceId = devInAll.deviceId;
-        } else if (devs && devs.length > 0) {
-          chosenDeviceId = devs[0].deviceId;
+        } else if (allSensors.length > 0) {
+          chosenDeviceId = allSensors[0].deviceId;
         }
 
         if (chosenDeviceId) {
@@ -381,6 +324,10 @@ export default function DashboardPage() {
             localStorage.setItem("green_node_focused_device", chosenDeviceId);
           }
           await loadFocusedNodeData(chosenDeviceId);
+        } else {
+          setFocusedDeviceId(null);
+          setFocusedLatestReading(null);
+          setRecentReadings([]);
         }
       }
     } catch (err) {
@@ -391,17 +338,26 @@ export default function DashboardPage() {
   const loadFocusedNodeData = async (devId: string) => {
     if (!devId) return;
     try {
-      const [reading, stats, readings] = await Promise.all([
+      const [reading, readings] = await Promise.all([
         fetchLatestReading(devId),
-        fetchStats(devId, 24, activeGreenhouseId),
         fetchReadings({ deviceId: devId, limit: 30, sortBy: "timestamp", sortOrder: "desc" }),
       ]);
+
+      // Guard against stale async responses if user switched modules quickly
+      if (focusedDeviceIdRef.current && focusedDeviceIdRef.current !== devId) {
+        return;
+      }
 
       const effectiveLatest = reading || (readings && readings.length > 0 ? readings[0] : null);
       if (effectiveLatest) {
         setFocusedLatestReading(effectiveLatest);
         if (typeof window !== "undefined") {
           localStorage.setItem(`green_node_latest_${devId}`, JSON.stringify(effectiveLatest));
+        }
+      } else {
+        setFocusedLatestReading(null);
+        if (typeof window !== "undefined") {
+          localStorage.removeItem(`green_node_latest_${devId}`);
         }
       }
 
@@ -411,14 +367,15 @@ export default function DashboardPage() {
           localStorage.setItem(`green_node_readings_${devId}`, JSON.stringify(readings));
         }
       } else if (effectiveLatest) {
-        setRecentReadings((prev) => (prev.length > 0 ? prev : [effectiveLatest]));
+        setRecentReadings([effectiveLatest]);
         if (typeof window !== "undefined") {
           localStorage.setItem(`green_node_readings_${devId}`, JSON.stringify([effectiveLatest]));
         }
-      }
-
-      if (stats) {
-        setStatsData(stats);
+      } else {
+        setRecentReadings([]);
+        if (typeof window !== "undefined") {
+          localStorage.removeItem(`green_node_readings_${devId}`);
+        }
       }
     } catch (err) {
       console.error("Error loading node telemetry:", err);
@@ -435,31 +392,16 @@ export default function DashboardPage() {
     }
   };
 
-  const checkBackendHealth = async () => {
-    const startTime = Date.now();
-    try {
-      setBackendStatus((prev) => (prev === "connected" ? "connected" : "checking"));
-      const data = await pingKeepAlive();
-      if (data && (data.status === "awake" || data.status === "ok")) {
-        setBackendLatency(Date.now() - startTime);
-        setBackendStatus("connected");
-      } else {
-        setBackendStatus("sleeping");
-      }
-    } catch {
-      setBackendStatus("sleeping");
-      setBackendLatency(null);
-    }
-  };
-
-  // WebSocket Connection with Greenhouse Filtering
-  const initWebSocket = () => {
+  // WebSocket Connection
+  const initWebSocket = (onUnexpectedClose?: () => void) => {
     const wsUrl = getWebSocketUrl();
     try {
+      if (socketRef.current) {
+        socketRef.current.onclose = null;
+        socketRef.current.close();
+      }
       const ws = new WebSocket(wsUrl);
       socketRef.current = ws;
-
-      ws.onopen = () => setWsConnected(true);
 
       ws.onmessage = (event) => {
         try {
@@ -490,7 +432,7 @@ export default function DashboardPage() {
             setAllDevices((prev) => prev.map(updateDeviceItem));
 
             const currentFocusId = focusedDeviceIdRef.current;
-            if (!currentFocusId || reading.deviceId === currentFocusId) {
+            if (currentFocusId && reading.deviceId === currentFocusId) {
               setFocusedLatestReading(reading);
               setRecentReadings((prev) => {
                 const nextReadings = [reading, ...prev.filter((r) => r.timestamp !== reading.timestamp)].slice(0, 30);
@@ -511,6 +453,18 @@ export default function DashboardPage() {
               setGreenhouseDevices((prev) => prev.map(updateHb));
               setAllDevices((prev) => prev.map(updateHb));
             }
+          } else if (payload.event === "device_updated" && payload.data?.deviceId) {
+            const updatedDev = payload.data as Device;
+            const mergeUpdated = (dev: Device) =>
+              dev.deviceId === updatedDev.deviceId ? { ...dev, ...updatedDev } : dev;
+            setGreenhouseDevices((prev) => prev.map(mergeUpdated));
+            setAllDevices((prev) => prev.map(mergeUpdated));
+          } else if (
+            payload.event === "device_registered" ||
+            payload.event === "device_deleted" ||
+            payload.event === "device_unregistered"
+          ) {
+            loadHierarchy();
           } else if (
             (payload.event === "hub_command_queued" || payload.event === "hub_command_updated") &&
             payload.data
@@ -541,161 +495,40 @@ export default function DashboardPage() {
         }
       };
 
-      ws.onclose = () => setWsConnected(false);
-      ws.onerror = () => setWsConnected(false);
-    } catch {
-      setWsConnected(false);
-    }
-  };
-
-  // 1. Handle Registering a New Company
-  const handleRegisterCompany = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsCreatingCompany(true);
-    try {
-      const company = await createCompany({
-        name: newCompanyName.trim(),
-        location: newCompanyLocation.trim(),
-        description: newCompanyDescription.trim() || undefined,
-      });
-
-      setShowNewCompanyModal(false);
-      setNewCompanyName("");
-      setNewCompanyLocation("");
-      setNewCompanyDescription("");
-
-      const comps = await fetchCompanies();
-      setCompanies(comps);
-      setSelectedCompanyId(company.companyId);
-      setNewGhCompanyId(company.companyId);
-
-      setFeedbackMsg({
-        type: "success",
-        text: `Company "${company.name}" registered at "${company.location}"!`,
-      });
-      setTimeout(() => setFeedbackMsg(null), 4000);
-    } catch (err: any) {
-      alert(err.message || "Failed to register company");
-    } finally {
-      setIsCreatingCompany(false);
-    }
-  };
-
-  // 2. Handle Registering a Greenhouse (Under Registered Company, with Plant)
-  const handleCreateGreenhouse = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newGhCompanyId) {
-      alert("Please select or register a Company first!");
-      return;
-    }
-    setIsCreatingGh(true);
-    try {
-      const gh = await createGreenhouse({
-        companyId: newGhCompanyId,
-        name: newGhName.trim(),
-        plant: newGhPlant.trim(),
-        description: newGhDescription.trim() || undefined,
-      });
-
-      setShowNewGreenhouseModal(false);
-      setNewGhName("");
-      setNewGhPlant("Heirloom Tomatoes");
-      setNewGhDescription("");
-
-      await loadHierarchy();
-      setActiveGreenhouseId(gh.greenhouseId);
-      setFeedbackMsg({
-        type: "success",
-        text: `Greenhouse "${gh.name}" (Crop: ${gh.plant}) created under ${gh.companyName}!`,
-      });
-      setTimeout(() => setFeedbackMsg(null), 4000);
-    } catch (err: any) {
-      alert(err.message || "Failed to create greenhouse");
-    } finally {
-      setIsCreatingGh(false);
-    }
-  };
-
-  // 3. Handle Registering a Module (Sensor Module or Actuator)
-  const handleRegisterDevice = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsRegistering(true);
-    try {
-      const isActuator = registerModuleTab === "actuator";
-      const selectedGh = greenhouses.find((g) => g.greenhouseId === newDeviceGreenhouseId);
-      const company = selectedGh?.companyLocation || "Main Facility";
-      const ghName = selectedGh?.name || "Greenhouse";
-      const plant = selectedGh?.plant || "Crops";
-
-      const dev = await registerDevice({
-        deviceId: newDeviceId.trim() || undefined,
-        name: newDeviceName.trim(),
-        greenhouseId: newDeviceGreenhouseId,
-        moduleCategory: registerModuleTab,
-        sensorType: isActuator ? "generic" : newDeviceSensorType,
-        actuatorType: isActuator ? newDeviceActuatorType : undefined,
-        subNodeId: isActuator && newDeviceSubNodeId.trim() ? newDeviceSubNodeId.trim() : undefined,
-        location: newDeviceLocation.trim() || "Zone 1",
-      });
-
-      if (typeof window !== "undefined") {
-        const metaMap = getActuatorMetaMap();
-        if (isActuator) {
-          metaMap[dev.deviceId] = {
-            moduleCategory: "actuator",
-            actuatorType: newDeviceActuatorType,
-            subNodeId: newDeviceSubNodeId.trim() || undefined,
-          };
-        } else {
-          delete metaMap[dev.deviceId];
+      ws.onclose = () => {
+        if (socketRef.current === ws) {
+          onUnexpectedClose?.();
         }
-        localStorage.setItem("green_node_actuator_meta", JSON.stringify(metaMap));
-      }
-
-      setShowRegisterModal(false);
-      setNewDeviceName("");
-      setNewDeviceId("");
-      setNewDeviceSubNodeId("");
-      setNewDeviceLocation("Zone 1 - Main Bed");
-
-      await loadHierarchy();
-      await loadGreenhouseData(newDeviceGreenhouseId);
-      setActiveGreenhouseId(newDeviceGreenhouseId);
-      setFocusedDeviceId(dev.deviceId);
-      if (typeof window !== "undefined") {
-        localStorage.setItem("green_node_active_greenhouse", newDeviceGreenhouseId);
-        localStorage.setItem("green_node_focused_device", dev.deviceId);
-      }
-      await loadFocusedNodeData(dev.deviceId);
-
-      setShowProvisionedSuccess({
-        deviceId: dev.deviceId,
-        name: dev.name,
-        greenhouseName: ghName,
-        companyLocation: company,
-        plant,
-        moduleCategory: registerModuleTab,
-      });
-
-      setFeedbackMsg({
-        type: "success",
-        text: `${isActuator ? "Actuator" : "Sensor Module"} "${dev.name}" registered to ${ghName}!`,
-      });
-      setTimeout(() => setFeedbackMsg(null), 5000);
-    } catch (err: any) {
-      alert(err.message || "Registration failed");
-    } finally {
-      setIsRegistering(false);
+      };
+      ws.onerror = () => {
+        ws.close();
+      };
+    } catch {
+      onUnexpectedClose?.();
     }
+  };
+
+  const handleNotify = (msg: { type: "success" | "error"; text: string }) => {
+    setFeedbackMsg(msg);
+    setTimeout(() => setFeedbackMsg(null), 4000);
+  };
+
+  const handleCommandCreated = (record: HubCommandRecord) => {
+    setHubCommands((prev) => {
+      if (prev.some((c) => c.commandId === record.commandId)) return prev;
+      return [record, ...prev].slice(0, 30);
+    });
+    setLiveHubCmdUpdate((prev) => ({
+      seq: (prev?.seq ?? 0) + 1,
+      record,
+    }));
   };
 
   const handleCopyUuid = (uuid: string) => {
     navigator.clipboard.writeText(uuid);
-    setCopiedUuid(true);
     setCopiedDeviceId(uuid);
     setFeedbackMsg({ type: "success", text: `Copied UUID: ${uuid}` });
     setTimeout(() => {
-      setCopiedUuid(false);
       setCopiedDeviceId(null);
     }, 2500);
     setTimeout(() => setFeedbackMsg(null), 3000);
@@ -703,70 +536,46 @@ export default function DashboardPage() {
 
   const handleDeleteDevice = async (e: React.MouseEvent, dev: Device) => {
     e.stopPropagation();
+    const isActuator = getModuleCategory(dev) === "actuator";
     if (
       !confirm(
-        `Are you sure you want to unregister sensor module "${dev.name}" (${dev.deviceId})? Unregistered modules will be rejected with 403 Forbidden.`
+        `Are you sure you want to unregister ${isActuator ? "actuator" : "sensor module"} "${dev.name}" (${dev.deviceId})? Unregistered modules will be rejected with 403 Forbidden.`
       )
     ) {
       return;
     }
     try {
       await deleteDevice(dev.deviceId);
-      if (dev.deviceId === focusedDeviceId) {
-        if (typeof window !== "undefined") {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem(`green_node_readings_${dev.deviceId}`);
+        localStorage.removeItem(`green_node_latest_${dev.deviceId}`);
+        try {
+          const metaMap = getActuatorMetaMap();
+          if (dev.deviceId in metaMap) {
+            delete metaMap[dev.deviceId];
+            localStorage.setItem("green_node_actuator_meta", JSON.stringify(metaMap));
+          }
+        } catch {}
+        if (dev.deviceId === focusedDeviceId) {
           localStorage.removeItem("green_node_focused_device");
-          localStorage.removeItem(`green_node_readings_${dev.deviceId}`);
-          localStorage.removeItem(`green_node_latest_${dev.deviceId}`);
         }
+      }
+      if (dev.deviceId === focusedDeviceId) {
+        setFocusedDeviceId(null);
+        setFocusedLatestReading(null);
+        setRecentReadings([]);
+      }
+      if (dev.deviceId === focusedActuatorId) {
+        setFocusedActuatorId(null);
       }
       setFeedbackMsg({
         type: "success",
-        text: `Sensor module "${dev.name}" unregistered successfully.`,
+        text: `${isActuator ? "Actuator" : "Sensor module"} "${dev.name}" unregistered successfully.`,
       });
       setTimeout(() => setFeedbackMsg(null), 3000);
       await loadHierarchy();
-      if (activeGreenhouseId) {
-        await loadGreenhouseData(activeGreenhouseId);
-      }
     } catch (err: any) {
       alert("Failed to unregister: " + err.message);
-    }
-  };
-
-  const handleSaveApiUrl = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (apiUrlInput.trim()) {
-      setBackendUrl(apiUrlInput.trim());
-      setShowSettingsModal(false);
-      window.location.reload();
-    }
-  };
-
-  const handleSendSample = async () => {
-    if (!focusedDeviceId) {
-      alert("Please register or select a sensor module in this greenhouse first.");
-      return;
-    }
-    try {
-      const targetDevId = focusedDeviceId;
-      await sendTestReading({
-        deviceId: targetDevId,
-        temperature: parseFloat((23 + Math.random() * 5).toFixed(2)),
-        humidity: parseFloat((55 + Math.random() * 15).toFixed(2)),
-        soilMoisture: parseFloat((45 + Math.random() * 25).toFixed(2)),
-        light: parseFloat((450 + Math.random() * 400).toFixed(1)),
-        espTemperature: parseFloat((37 + Math.random() * 8).toFixed(2)),
-        wifiSsid: "Greenhouse_IoT_2.4G",
-        timestamp: new Date().toISOString(),
-        metadata: { chip: "esp32-c3-supermini", rssi: -62 },
-      });
-      await loadFocusedNodeData(targetDevId);
-      await loadGreenhouseData(activeGreenhouseId);
-      loadLogs();
-      setFeedbackMsg({ type: "success", text: "Sample telemetry ingested & verified!" });
-      setTimeout(() => setFeedbackMsg(null), 3000);
-    } catch (err: any) {
-      alert("Telemetry rejected: " + err.message);
     }
   };
 
@@ -775,6 +584,10 @@ export default function DashboardPage() {
     await Promise.all([clearAllLogs(), clearHubCommands()]);
     setLogs([]);
     setHubCommands([]);
+    setLiveHubCmdUpdate((prev) => ({
+      seq: (prev?.seq ?? 0) + 1,
+      cleared: true,
+    }));
   };
 
   type ModuleActivityEntry = {
@@ -902,11 +715,9 @@ export default function DashboardPage() {
     .filter((entry) => (activityFilter === "actuators" ? entry.isActuator : true))
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
-  // Filter Greenhouses by selected Company
-  const filteredGreenhouses =
-    selectedCompanyId === "all"
-      ? greenhouses
-      : greenhouses.filter((g) => g.companyId === selectedCompanyId);
+  const focusedSensorDevice =
+    allDevices.find((d) => d.deviceId === focusedDeviceId && getModuleCategory(d) === "sensor") ||
+    null;
 
   if (isLoading || !isAuthenticated) {
     return null;
@@ -1123,11 +934,11 @@ export default function DashboardPage() {
               );
             }
 
-            const selectedModule =
-              displayed.find((d) => d.deviceId === focusedDeviceId) || displayed[0] || null;
-
             const handleSelectModule = (dev: Device) => {
-              hasUserSelectedModuleRef.current = true;
+              if (getModuleCategory(dev) === "actuator") {
+                setFocusedActuatorId(dev.deviceId);
+                return;
+              }
               setFocusedDeviceId(dev.deviceId);
               if (typeof window !== "undefined") {
                 localStorage.setItem("green_node_focused_device", dev.deviceId);
@@ -1144,8 +955,10 @@ export default function DashboardPage() {
             const renderModuleCard = (dev: Device) => {
               const isActuator = getModuleCategory(dev) === "actuator";
               const actuatorMeta = getActuatorMeta(dev);
-              const isFocused = dev.deviceId === focusedDeviceId;
-              const r = dev.latestReading || (isFocused ? focusedLatestReading : undefined);
+              const isFocused = isActuator
+                ? dev.deviceId === (selectedActuator?.deviceId || focusedActuatorId)
+                : dev.deviceId === (selectedSensor?.deviceId || focusedDeviceId);
+              const r = dev.latestReading || (!isActuator && isFocused ? focusedLatestReading : undefined);
               const probeLabel = isActuator
                 ? `Actuator • ${actuatorMeta.actuatorType.toUpperCase()}`
                 : dev.sensorType === "md0869"
@@ -1252,25 +1065,25 @@ export default function DashboardPage() {
                       <div className="bg-[#18181D] rounded-xl p-3 text-center">
                         <span className="text-xs text-[#8E8E93] font-medium block">Temp</span>
                         <span className="text-lg font-bold text-emerald-400">
-                          {r?.temperature !== undefined ? `${r.temperature.toFixed(1)}°C` : "--"}
+                          {typeof r?.temperature === "number" ? `${r.temperature.toFixed(1)}°C` : "--"}
                         </span>
                       </div>
                       <div className="bg-[#18181D] rounded-xl p-3 text-center">
                         <span className="text-xs text-[#8E8E93] font-medium block">Humidity</span>
                         <span className="text-lg font-bold text-cyan-400">
-                          {r?.humidity !== undefined ? `${r.humidity.toFixed(1)}%` : "--"}
+                          {typeof r?.humidity === "number" ? `${r.humidity.toFixed(1)}%` : "--"}
                         </span>
                       </div>
                       <div className="bg-[#18181D] rounded-xl p-3 text-center">
                         <span className="text-xs text-[#8E8E93] font-medium block">Soil</span>
                         <span className="text-lg font-bold text-purple-400">
-                          {r?.soilMoisture !== undefined ? `${r.soilMoisture.toFixed(1)}%` : "--"}
+                          {typeof r?.soilMoisture === "number" ? `${r.soilMoisture.toFixed(1)}%` : "--"}
                         </span>
                       </div>
                       <div className="bg-[#18181D] rounded-xl p-3 text-center">
                         <span className="text-xs text-[#8E8E93] font-medium block">Light</span>
                         <span className="text-lg font-bold text-amber-400">
-                          {r?.light !== undefined ? `${r.light.toFixed(0)} lx` : "--"}
+                          {typeof r?.light === "number" ? `${r.light.toFixed(0)} lx` : "--"}
                         </span>
                       </div>
                     </div>
@@ -1320,7 +1133,7 @@ export default function DashboardPage() {
                       <span className="truncate">{r?.wifiSsid || dev.wifiSsid || "Wi-Fi Ready"}</span>
                     </span>
                     <span className={`${isActuator ? "text-cyan-400" : "text-emerald-400"} hover:underline font-medium`}>
-                      {isFocused ? "Selected ↓" : "Click to Select"}
+                      {isFocused ? "Selected" : "Click to Select"}
                     </span>
                   </div>
                 </div>
@@ -1404,7 +1217,7 @@ export default function DashboardPage() {
                           <div>
                             <p className="text-sm font-semibold text-white">No Actuators Registered</p>
                             <p className="text-xs text-[#8E8E93]">
-                              Register an actuator module in Settings to see and manage it here.
+                              Register an actuator module in New Registers to see and manage it here.
                             </p>
                           </div>
                         </div>
@@ -1456,10 +1269,8 @@ export default function DashboardPage() {
                           {selectedActuator ? (
                             <ActuatorQuickControls
                               defaultSubNodeId={getActuatorMeta(selectedActuator).subNodeId}
-                              onNotify={(msg) => {
-                                setFeedbackMsg(msg);
-                                setTimeout(() => setFeedbackMsg(null), 4000);
-                              }}
+                              onNotify={handleNotify}
+                              onCommandCreated={handleCommandCreated}
                             />
                           ) : null}
                         </div>
@@ -1475,25 +1286,21 @@ export default function DashboardPage() {
             devices={allDevices}
             focusedDeviceId={focusedDeviceId}
             liveCommandUpdate={liveHubCmdUpdate}
-            onNotify={(msg) => {
-              setFeedbackMsg(msg);
-              setTimeout(() => setFeedbackMsg(null), 4000);
-            }}
-            onCommandCreated={(record) => {
-              setLiveHubCmdUpdate((prev) => ({
-                seq: (prev?.seq ?? 0) + 1,
-                record,
-              }));
-            }}
+            onNotify={handleNotify}
+            onCommandCreated={handleCommandCreated}
           />
         </section>
 
         {/* HUB CLI & ACTUATOR CONTROL PANEL */}
         <HubCommandPanel
           liveCommandUpdate={liveHubCmdUpdate}
-          onNotify={(msg) => {
-            setFeedbackMsg(msg);
-            setTimeout(() => setFeedbackMsg(null), 4000);
+          onNotify={handleNotify}
+          onCleared={() => {
+            setHubCommands([]);
+            setLiveHubCmdUpdate((prev) => ({
+              seq: (prev?.seq ?? 0) + 1,
+              cleared: true,
+            }));
           }}
         />
 
@@ -1504,7 +1311,13 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-base font-semibold text-white flex items-center space-x-2">
                 <Activity className="w-4 h-4 text-emerald-400" />
-                <span>Live Feed ({activeGreenhouse?.name} - {activeGreenhouse?.plant})</span>
+                <span>
+                  Live Feed (
+                  {focusedSensorDevice
+                    ? `${focusedSensorDevice.name} • ${focusedSensorDevice.plant || activeGreenhouse?.plant || "Crop"}`
+                    : `${activeGreenhouse?.name || "Modules"} - ${activeGreenhouse?.plant || "Crop"}`}
+                  )
+                </span>
               </h3>
               <span className="text-xs text-[#8E8E93]">
                 {recentReadings.length} Ingested Packets
@@ -1533,23 +1346,23 @@ export default function DashboardPage() {
                         {r.wifiSsid || "--"}
                       </td>
                       <td className="py-2.5 px-3 text-emerald-400 font-medium">
-                        {r.temperature.toFixed(1)}°C
+                        {typeof r.temperature === "number" ? `${r.temperature.toFixed(1)}°C` : "--"}
                       </td>
                       <td className="py-2.5 px-3 text-cyan-400 font-medium">
-                        {r.humidity.toFixed(1)}%
+                        {typeof r.humidity === "number" ? `${r.humidity.toFixed(1)}%` : "--"}
                       </td>
                       <td className="py-2.5 px-3 text-purple-400 font-medium">
-                        {r.soilMoisture.toFixed(1)}%
+                        {typeof r.soilMoisture === "number" ? `${r.soilMoisture.toFixed(1)}%` : "--"}
                       </td>
                       <td className="py-2.5 px-3 text-amber-400 font-medium">
-                        {r.light.toFixed(0)} lx
+                        {typeof r.light === "number" ? `${r.light.toFixed(0)} lx` : "--"}
                       </td>
                     </tr>
                   ))}
                   {recentReadings.length === 0 && (
                     <tr>
                       <td colSpan={6} className="py-8 text-center text-[#6E6E73] text-sm">
-                        No telemetry packets for this greenhouse yet. Click "Simulate" to test.
+                        No telemetry packets for this module yet.
                       </td>
                     </tr>
                   )}
@@ -1690,565 +1503,8 @@ export default function DashboardPage() {
 
       {/* Footer */}
       <footer className="border-t border-[#202026] bg-[#0A0A0C] py-5 px-6 text-center text-xs text-[#52525A]">
-        Green Node IoT Monitoring Hub • Company & Greenhouse Cluster Architecture
+        Green Node IoT Monitoring Hub • Company &amp; Greenhouse Cluster Architecture
       </footer>
-
-      {/* PROVISIONING SUCCESS & FIRMWARE CODE MODAL */}
-      {showProvisionedSuccess && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#141417] border border-emerald-500/50 rounded-2xl p-6 w-full max-w-lg shadow-2xl animate-in zoom-in-95">
-            <div className="flex items-center space-x-2 text-emerald-400 mb-2">
-              <CheckCircle2 className="w-5 h-5" />
-              <h3 className="text-base font-semibold text-white">
-                {showProvisionedSuccess.moduleCategory === "actuator"
-                  ? "Actuator Successfully Registered!"
-                  : "Sensor Module Successfully Registered!"}
-              </h3>
-            </div>
-            <p className="text-xs text-[#8E8E93] mb-4">
-              Registered to <strong className="text-white">{showProvisionedSuccess.greenhouseName}</strong> (Crop: <strong className="text-emerald-400">{showProvisionedSuccess.plant}</strong>) at <strong className="text-white">{showProvisionedSuccess.companyLocation}</strong>.
-            </p>
-
-            <div className="bg-[#1C1C22] border border-[#282830] rounded-xl p-3 mb-4">
-              <span className="text-[10px] uppercase font-semibold text-[#8E8E93] block mb-1">Registered Device UUID</span>
-              <div className="flex items-center justify-between">
-                <code className="text-xs font-mono text-emerald-400 break-all select-all">
-                  {showProvisionedSuccess.deviceId}
-                </code>
-                <button
-                  onClick={() => handleCopyUuid(showProvisionedSuccess.deviceId)}
-                  className="ml-2 px-2.5 py-1 bg-[#282830] hover:bg-[#343440] text-xs font-medium rounded-lg text-white shrink-0 flex items-center space-x-1"
-                >
-                  {copiedUuid ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedUuid ? "Copied" : "Copy"}</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-2 mb-5">
-              <span className="text-xs font-semibold text-[#A1A1A6] block">Arduino Firmware Code (Paste in .ino)</span>
-              <div className="bg-[#0A0A0C] border border-[#24242A] rounded-xl p-3 font-mono text-[11px] text-teal-300 select-all overflow-x-auto">
-                const char* DEVICE_ID = &quot;{showProvisionedSuccess.deviceId}&quot;;
-              </div>
-            </div>
-
-            <div className="flex justify-end">
-              <button
-                onClick={() => setShowProvisionedSuccess(null)}
-                className="px-5 py-2 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white rounded-xl text-xs font-medium shadow-md shadow-emerald-500/20 transition"
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 1. REGISTER COMPANY MODAL (Asking Company Name and Location) */}
-      {showNewCompanyModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#141417] border border-[#282830] rounded-2xl p-6 w-full max-w-md shadow-2xl">
-            <h3 className="text-base font-semibold text-white mb-1 flex items-center space-x-2">
-              <Building2 className="w-4 h-4 text-emerald-400" />
-              <span>Register Company</span>
-            </h3>
-            <p className="text-xs text-[#8E8E93] mb-4">
-              Enter your corporate agriculture company name and primary facility location.
-            </p>
-
-            <form onSubmit={handleRegisterCompany} className="space-y-3.5">
-              <div>
-                <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
-                  Company Name *
-                </label>
-                <input
-                  type="text"
-                  value={newCompanyName}
-                  onChange={(e) => setNewCompanyName(e.target.value)}
-                  placeholder="e.g. Ceylon Agro Tech Corp"
-                  required
-                  className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white placeholder-[#5A5A60] focus:outline-none focus:border-emerald-500/60"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
-                  Company Location / Facility *
-                </label>
-                <input
-                  type="text"
-                  value={newCompanyLocation}
-                  onChange={(e) => setNewCompanyLocation(e.target.value)}
-                  placeholder="e.g. Colombo Agri Facility or Nuwara Eliya High Farm"
-                  required
-                  className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white placeholder-[#5A5A60] focus:outline-none focus:border-emerald-500/60"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
-                  Description (Optional)
-                </label>
-                <input
-                  type="text"
-                  value={newCompanyDescription}
-                  onChange={(e) => setNewCompanyDescription(e.target.value)}
-                  placeholder="e.g. Commercial vertical farming & hydroponics"
-                  className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white placeholder-[#5A5A60] focus:outline-none focus:border-emerald-500/60"
-                />
-              </div>
-
-              <div className="flex justify-end space-x-2 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setShowNewCompanyModal(false)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium text-[#8E8E93] hover:text-white transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isCreatingCompany}
-                  className="px-4 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white rounded-lg text-xs font-medium shadow-md shadow-emerald-500/20 transition disabled:opacity-50"
-                >
-                  {isCreatingCompany ? "Registering..." : "Register Company"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* 2. REGISTER GREENHOUSE MODAL (Under Registered Company, asking for Plant/Crop) */}
-      {showNewGreenhouseModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#141417] border border-[#282830] rounded-2xl p-6 w-full max-w-md shadow-2xl">
-            <h3 className="text-base font-semibold text-white mb-1 flex items-center space-x-2">
-              <Warehouse className="w-4 h-4 text-teal-400" />
-              <span>Register Greenhouse</span>
-            </h3>
-            <p className="text-xs text-[#8E8E93] mb-4">
-              Register a greenhouse under an existing company and designate the target plant / crop.
-            </p>
-
-            <form onSubmit={handleCreateGreenhouse} className="space-y-3.5">
-              <div>
-                <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
-                  Registered Company *
-                </label>
-                <select
-                  value={newGhCompanyId}
-                  onChange={(e) => setNewGhCompanyId(e.target.value)}
-                  className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500/60"
-                  required
-                >
-                  {companies.map((c) => (
-                    <option key={c.companyId} value={c.companyId}>
-                      {c.name} — {c.location}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
-                  Greenhouse Name *
-                </label>
-                <input
-                  type="text"
-                  value={newGhName}
-                  onChange={(e) => setNewGhName(e.target.value)}
-                  placeholder="e.g. Greenhouse 01 or Tunnel Bay A"
-                  required
-                  className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white placeholder-[#5A5A60] focus:outline-none focus:border-emerald-500/60"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
-                  Target Plant / Crop *
-                </label>
-                <input
-                  type="text"
-                  value={newGhPlant}
-                  onChange={(e) => setNewGhPlant(e.target.value)}
-                  placeholder="e.g. Heirloom Tomatoes, Strawberries, Bell Peppers, Basil"
-                  required
-                  className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white placeholder-[#5A5A60] focus:outline-none focus:border-emerald-500/60"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
-                  Description (Optional)
-                </label>
-                <input
-                  type="text"
-                  value={newGhDescription}
-                  onChange={(e) => setNewGhDescription(e.target.value)}
-                  placeholder="e.g. Automated drip-irrigation hydroponic setup"
-                  className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white placeholder-[#5A5A60] focus:outline-none focus:border-emerald-500/60"
-                />
-              </div>
-
-              <div className="flex justify-end space-x-2 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setShowNewGreenhouseModal(false)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium text-[#8E8E93] hover:text-white transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isCreatingGh}
-                  className="px-4 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white rounded-lg text-xs font-medium shadow-md shadow-emerald-500/20 transition disabled:opacity-50"
-                >
-                  {isCreatingGh ? "Creating..." : "Register Greenhouse"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* 3. REGISTER MODULE MODAL (Sensor Module & Actuator Registrations) */}
-      {showRegisterModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-[#141417] border border-[#282830] rounded-2xl p-6 w-full max-w-2xl shadow-2xl my-8">
-            <div className="flex items-start justify-between mb-3">
-              <div>
-                <h3 className="text-base font-semibold text-white mb-1 flex items-center space-x-2">
-                  {registerModuleTab === "actuator" ? (
-                    <Power className="w-4 h-4 text-cyan-400" />
-                  ) : (
-                    <Cpu className="w-4 h-4 text-emerald-400" />
-                  )}
-                  <span>Register Module</span>
-                </h3>
-                <p className="text-xs text-[#8E8E93]">
-                  Register a sensor module or actuator and view existing registrations linked to your greenhouses.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowRegisterModal(false)}
-                className="text-[#8E8E93] hover:text-white text-xs px-2 py-1 rounded-lg hover:bg-[#202026]"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Module Category Switcher */}
-            <div className="grid grid-cols-2 gap-2 p-1 bg-[#0E0E12] border border-[#26262E] rounded-xl mb-4">
-              <button
-                type="button"
-                onClick={() => setRegisterModuleTab("sensor")}
-                className={`py-2 px-3 rounded-lg text-xs font-semibold transition flex items-center justify-center space-x-2 ${
-                  registerModuleTab === "sensor"
-                    ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm"
-                    : "text-[#8E8E93] hover:text-white"
-                }`}
-              >
-                <Cpu className="w-3.5 h-3.5" />
-                <span>Sensor Module Registration</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setRegisterModuleTab("actuator")}
-                className={`py-2 px-3 rounded-lg text-xs font-semibold transition flex items-center justify-center space-x-2 ${
-                  registerModuleTab === "actuator"
-                    ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm"
-                    : "text-[#8E8E93] hover:text-white"
-                }`}
-              >
-                <Power className="w-3.5 h-3.5" />
-                <span>Actuator Registration</span>
-              </button>
-            </div>
-
-            <form onSubmit={handleRegisterDevice} className="space-y-3.5">
-              <div>
-                <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
-                  Assign to Greenhouse *
-                </label>
-                <select
-                  value={newDeviceGreenhouseId}
-                  onChange={(e) => setNewDeviceGreenhouseId(e.target.value)}
-                  className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500/60"
-                  required
-                >
-                  {greenhouses.map((g) => (
-                    <option key={g.greenhouseId} value={g.greenhouseId}>
-                      {g.name} ({g.companyName}) — 🌱 {g.plant}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
-                  {registerModuleTab === "actuator"
-                    ? "Actuator Friendly Name *"
-                    : "Sensor Module Friendly Name *"}
-                </label>
-                <input
-                  type="text"
-                  value={newDeviceName}
-                  onChange={(e) => setNewDeviceName(e.target.value)}
-                  placeholder={
-                    registerModuleTab === "actuator"
-                      ? "e.g. Exhaust Fan 01"
-                      : "e.g. Bed A Sensor Module"
-                  }
-                  required
-                  className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white placeholder-[#5A5A60] focus:outline-none focus:border-emerald-500/60"
-                />
-              </div>
-
-              {registerModuleTab === "sensor" ? (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
-                      Sensor Module
-                    </label>
-                    <select
-                      value={newDeviceSensorType}
-                      onChange={(e) => setNewDeviceSensorType(e.target.value)}
-                      className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500/60"
-                    >
-                      <option value="fc28">All Modules + FC-28 Soil Moisture</option>
-                      <option value="md0869">All Modules + MD0869 Soil Moisture</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
-                      Zone / Bed Location
-                    </label>
-                    <input
-                      type="text"
-                      value={newDeviceLocation}
-                      onChange={(e) => setNewDeviceLocation(e.target.value)}
-                      placeholder="e.g. Zone 1 - Canopy"
-                      className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white placeholder-[#5A5A60] focus:outline-none focus:border-emerald-500/60"
-                    />
-                  </div>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
-                      Actuator Type
-                    </label>
-                    <select
-                      value={newDeviceActuatorType}
-                      onChange={(e) => setNewDeviceActuatorType(e.target.value)}
-                      className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/60"
-                    >
-                      <option value="fan">Cooling / Exhaust Fan</option>
-                      <option value="pump">Water / Nutrient Pump</option>
-                      <option value="irrigation">Irrigation Valve</option>
-                      <option value="light">Grow Light</option>
-                      <option value="heater">Heater</option>
-                      <option value="relay">Generic Relay</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
-                      Sub-Node ID (Optional)
-                    </label>
-                    <input
-                      type="text"
-                      value={newDeviceSubNodeId}
-                      onChange={(e) => setNewDeviceSubNodeId(e.target.value)}
-                      placeholder="e.g. sn-0001 / fan-01"
-                      className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-[#5A5A60] focus:outline-none focus:border-cyan-500/60"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
-                      Zone / Bed Location
-                    </label>
-                    <input
-                      type="text"
-                      value={newDeviceLocation}
-                      onChange={(e) => setNewDeviceLocation(e.target.value)}
-                      placeholder="e.g. Zone 1 - Roof"
-                      className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white placeholder-[#5A5A60] focus:outline-none focus:border-cyan-500/60"
-                    />
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
-                  Device UUID (Optional - Auto-generated if left blank)
-                </label>
-                <input
-                  type="text"
-                  value={newDeviceId}
-                  onChange={(e) => setNewDeviceId(e.target.value)}
-                  placeholder="Leave empty to generate a new UUID"
-                  className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white placeholder-[#5A5A60] font-mono focus:outline-none focus:border-emerald-500/60"
-                />
-              </div>
-
-              <div className="flex justify-end space-x-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowRegisterModal(false)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium text-[#8E8E93] hover:text-white transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isRegistering}
-                  className={`px-4 py-1.5 text-white rounded-lg text-xs font-medium shadow-md transition disabled:opacity-50 ${
-                    registerModuleTab === "actuator"
-                      ? "bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 shadow-cyan-500/20"
-                      : "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 shadow-emerald-500/20"
-                  }`}
-                >
-                  {isRegistering
-                    ? "Registering..."
-                    : registerModuleTab === "actuator"
-                    ? "Register Actuator"
-                    : "Register Sensor Module"}
-                </button>
-              </div>
-            </form>
-
-            {/* Current Registrations Inside Register Module */}
-            {(() => {
-              const sensorRegs = allDevices.filter((d) => getModuleCategory(d) === "sensor");
-              const actuatorRegs = allDevices.filter((d) => getModuleCategory(d) === "actuator");
-
-              return (
-                <div className="mt-5 pt-4 border-t border-[#26262E] grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Sensor Module Registrations */}
-                  <div className="bg-[#0E0E12] border border-[#22222A] rounded-xl p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-[11px] font-semibold text-emerald-400 flex items-center space-x-1.5">
-                        <Cpu className="w-3.5 h-3.5" />
-                        <span>Sensor Module Registrations</span>
-                      </span>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 font-bold">
-                        {sensorRegs.length}
-                      </span>
-                    </div>
-                    <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
-                      {sensorRegs.length === 0 ? (
-                        <p className="text-[11px] text-[#6E6E73] py-2">No sensor modules registered yet.</p>
-                      ) : (
-                        sensorRegs.map((d) => (
-                          <div
-                            key={d.deviceId}
-                            className="bg-[#16161B] border border-[#24242C] rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2"
-                          >
-                            <div className="min-w-0">
-                              <p className="text-xs font-medium text-white truncate">{d.name}</p>
-                              <p className="text-[10px] text-[#8E8E93] truncate">
-                                {d.greenhouseName || "Greenhouse"} • {d.sensorType || "fc28"}
-                              </p>
-                            </div>
-                            <code className="text-[10px] font-mono text-emerald-400 shrink-0">
-                              {d.deviceId.slice(0, 8)}…
-                            </code>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Actuator Registrations */}
-                  <div className="bg-[#0E0E12] border border-[#22222A] rounded-xl p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-[11px] font-semibold text-cyan-300 flex items-center space-x-1.5">
-                        <Power className="w-3.5 h-3.5" />
-                        <span>Actuator Registrations</span>
-                      </span>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 font-bold">
-                        {actuatorRegs.length}
-                      </span>
-                    </div>
-                    <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
-                      {actuatorRegs.length === 0 ? (
-                        <p className="text-[11px] text-[#6E6E73] py-2">No actuators registered yet.</p>
-                      ) : (
-                        actuatorRegs.map((d) => {
-                          const meta = getActuatorMeta(d);
-                          return (
-                            <div
-                              key={d.deviceId}
-                              className="bg-[#16161B] border border-[#24242C] rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2"
-                            >
-                              <div className="min-w-0">
-                                <p className="text-xs font-medium text-white truncate">{d.name}</p>
-                                <p className="text-[10px] text-[#8E8E93] truncate">
-                                  {d.greenhouseName || "Greenhouse"} • {meta.actuatorType}
-                                  {meta.subNodeId ? ` (${meta.subNodeId})` : ""}
-                                </p>
-                              </div>
-                              <code className="text-[10px] font-mono text-cyan-300 shrink-0">
-                                {d.deviceId.slice(0, 8)}…
-                              </code>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
-        </div>
-      )}
-
-      {/* Backend API Settings Modal */}
-      {showSettingsModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#141417] border border-[#282830] rounded-2xl p-6 w-full max-w-md shadow-2xl">
-            <h3 className="text-base font-semibold text-white mb-1">Backend Connection Settings</h3>
-            <p className="text-xs text-[#8E8E93] mb-4">
-              Configure where this Next.js frontend fetches telemetry and REST endpoints.
-            </p>
-
-            <form onSubmit={handleSaveApiUrl} className="space-y-3.5">
-              <div>
-                <label className="block text-xs font-medium text-[#A1A1A6] mb-1">
-                  Backend API URL
-                </label>
-                <input
-                  type="url"
-                  value={apiUrlInput}
-                  onChange={(e) => setApiUrlInput(e.target.value)}
-                  placeholder="https://blue-circle.onrender.com or http://localhost:4000"
-                  required
-                  className="w-full bg-[#1C1C20] border border-[#2C2C32] rounded-xl px-3 py-2 text-xs text-white placeholder-[#5A5A60] font-mono focus:outline-none focus:border-emerald-500/60"
-                />
-              </div>
-
-              <div className="flex justify-end space-x-2 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setShowSettingsModal(false)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium text-[#8E8E93] hover:text-white transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white rounded-lg text-xs font-medium shadow-md shadow-emerald-500/20 transition"
-                >
-                  Save & Reload
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

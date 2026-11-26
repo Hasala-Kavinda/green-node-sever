@@ -62,12 +62,26 @@ function makeAreaGradient(rgb: string, topAlpha = 0.28) {
   };
 }
 
-function calcStats(values: number[]) {
-  if (values.length === 0) return null;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const avg = values.reduce((s, v) => s + v, 0) / values.length;
+function calcStats(values: Array<number | null | undefined>) {
+  const valid = values.filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+  if (valid.length === 0) return null;
+  const min = Math.min(...valid);
+  const max = Math.max(...valid);
+  const avg = valid.reduce((s, v) => s + v, 0) / valid.length;
   return { min, max, avg };
+}
+
+function isSensorDevice(dev: Device): boolean {
+  if (dev.moduleCategory === "actuator" || dev.sensorType === "actuator") return false;
+  if (dev.moduleCategory === "sensor") return true;
+  if (typeof window !== "undefined") {
+    try {
+      const raw = localStorage.getItem("green_node_actuator_meta");
+      const meta = raw ? JSON.parse(raw) : {};
+      if (meta?.[dev.deviceId]?.moduleCategory === "actuator") return false;
+    } catch {}
+  }
+  return true;
 }
 
 export default function GreenhouseAnalyticsDetailPage() {
@@ -85,10 +99,35 @@ export default function GreenhouseAnalyticsDetailPage() {
 
   const socketRef = useRef<WebSocket | null>(null);
   const ghDevicesRef = useRef<Device[]>([]);
+  const selectedModuleIdRef = useRef<string>(selectedModuleId);
+  const windowSizeRef = useRef<15 | 30 | 60>(windowSize);
+
+  const sensorDevices = useMemo(
+    () => greenhouseDevices.filter(isSensorDevice),
+    [greenhouseDevices]
+  );
 
   useEffect(() => {
     ghDevicesRef.current = greenhouseDevices;
   }, [greenhouseDevices]);
+
+  useEffect(() => {
+    selectedModuleIdRef.current = selectedModuleId;
+  }, [selectedModuleId]);
+
+  useEffect(() => {
+    windowSizeRef.current = windowSize;
+  }, [windowSize]);
+
+  useEffect(() => {
+    if (
+      selectedModuleId !== "all" &&
+      sensorDevices.length > 0 &&
+      !sensorDevices.some((d) => d.deviceId === selectedModuleId)
+    ) {
+      setSelectedModuleId("all");
+    }
+  }, [sensorDevices, selectedModuleId]);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -98,12 +137,15 @@ export default function GreenhouseAnalyticsDetailPage() {
 
   const loadData = useCallback(async () => {
     if (!greenhouseId) return;
+    const modFilter = selectedModuleIdRef.current;
+    const fetchLimit = windowSizeRef.current;
     try {
       const [overview, ghReadings] = await Promise.all([
         fetchGreenhouseOverview(greenhouseId),
         fetchReadings({
-          greenhouseId,
-          limit: 60,
+          greenhouseId: modFilter === "all" ? greenhouseId : undefined,
+          deviceId: modFilter === "all" ? undefined : modFilter,
+          limit: fetchLimit,
           sortBy: "timestamp",
           sortOrder: "desc",
         }),
@@ -120,9 +162,7 @@ export default function GreenhouseAnalyticsDetailPage() {
         }
       }
 
-      if (ghReadings && ghReadings.length > 0) {
-        setReadings(ghReadings);
-      }
+      setReadings(Array.isArray(ghReadings) ? ghReadings : []);
     } catch {
       // ignore transient errors
     } finally {
@@ -132,102 +172,145 @@ export default function GreenhouseAnalyticsDetailPage() {
 
   useEffect(() => {
     if (!isAuthenticated || !greenhouseId) return;
-
     loadData();
+  }, [isAuthenticated, greenhouseId, selectedModuleId, windowSize, loadData]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !greenhouseId) return;
+
     const pollTimer = setInterval(loadData, 15000);
+    let disposed = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-    let ws: WebSocket | null = null;
-    try {
-      ws = new WebSocket(getWebSocketUrl());
-      socketRef.current = ws;
+    const connectWs = () => {
+      if (disposed) return;
+      try {
+        const ws = new WebSocket(getWebSocketUrl());
+        socketRef.current = ws;
 
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-          if (msg.event === "new_reading" && msg.data) {
-            const incoming: Reading = msg.data;
-            const belongsToGh =
-              incoming.greenhouseId?.toLowerCase() === greenhouseId.toLowerCase() ||
-              ghDevicesRef.current.some((d) => d.deviceId === incoming.deviceId);
+        ws.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.event === "new_reading" && msg.data) {
+              const incoming: Reading = msg.data;
+              const belongsToGh =
+                incoming.greenhouseId?.toLowerCase() === greenhouseId.toLowerCase() ||
+                ghDevicesRef.current.some((d) => d.deviceId === incoming.deviceId);
 
-            if (!belongsToGh) return;
+              if (!belongsToGh) return;
 
-            setReadings((prev) => [incoming, ...prev].slice(0, 60));
+              const currentMod = selectedModuleIdRef.current;
+              if (currentMod === "all" || incoming.deviceId === currentMod) {
+                setReadings((prev) => {
+                  const isDup = prev.some(
+                    (r) =>
+                      (incoming.id && r.id === incoming.id) ||
+                      (r.deviceId === incoming.deviceId && r.timestamp === incoming.timestamp)
+                  );
+                  if (isDup) return prev;
+                  return [incoming, ...prev].slice(0, windowSizeRef.current);
+                });
+              }
 
-            setGreenhouseDevices((prev) => {
-              const idx = prev.findIndex((d) => d.deviceId === incoming.deviceId);
-              if (idx === -1) return prev;
+              setGreenhouseDevices((prev) => {
+                const idx = prev.findIndex((d) => d.deviceId === incoming.deviceId);
+                if (idx === -1) return prev;
 
-              const updated = prev.map((d) =>
-                d.deviceId === incoming.deviceId
-                  ? {
-                      ...d,
-                      isOnline: true,
-                      status: "online" as const,
-                      latestReading: {
-                        temperature: incoming.temperature,
-                        humidity: incoming.humidity,
-                        soilMoisture: incoming.soilMoisture,
-                        light: incoming.light,
-                        espTemperature: incoming.espTemperature,
-                        wifiSsid: incoming.wifiSsid,
-                        timestamp: incoming.timestamp,
-                      },
-                    }
-                  : d
-              );
-
-              const withReadings = updated.filter((d) => d.latestReading);
-              if (withReadings.length > 0) {
-                const round = (v: number) => Math.round(v * 10) / 10;
-                const avgTemp = round(
-                  withReadings.reduce((s, d) => s + (d.latestReading?.temperature ?? 0), 0) /
-                    withReadings.length
-                );
-                const avgHum = round(
-                  withReadings.reduce((s, d) => s + (d.latestReading?.humidity ?? 0), 0) /
-                    withReadings.length
-                );
-                const avgSoil = round(
-                  withReadings.reduce((s, d) => s + (d.latestReading?.soilMoisture ?? 0), 0) /
-                    withReadings.length
-                );
-                setActiveGreenhouse((gh) =>
-                  gh
+                const updated = prev.map((d) =>
+                  d.deviceId === incoming.deviceId
                     ? {
-                        ...gh,
-                        summary: {
-                          ...gh.summary,
-                          avgTemperature: avgTemp,
-                          avgHumidity: avgHum,
-                          avgSoilMoisture: avgSoil,
-                          avgLight: gh.summary?.avgLight ?? null,
+                        ...d,
+                        isOnline: true,
+                        status: "online" as const,
+                        latestReading: {
+                          temperature: incoming.temperature,
+                          humidity: incoming.humidity,
+                          soilMoisture: incoming.soilMoisture,
+                          light: incoming.light,
+                          espTemperature: incoming.espTemperature,
+                          wifiSsid: incoming.wifiSsid,
+                          timestamp: incoming.timestamp,
                         },
                       }
-                    : gh
+                    : d
                 );
-              }
-              return updated;
-            });
-          } else if (
-            msg.event === "device_heartbeat" ||
-            msg.event === "device_registered" ||
-            msg.event === "device_deleted" ||
-            msg.event === "device_unregistered"
-          ) {
-            loadData();
+
+                const sensorsWithReadings = updated.filter(
+                  (d) => isSensorDevice(d) && d.latestReading
+                );
+                if (sensorsWithReadings.length > 0) {
+                  const round = (v: number) => Math.round(v * 10) / 10;
+                  const avgTemp = round(
+                    sensorsWithReadings.reduce((s, d) => s + (d.latestReading?.temperature ?? 0), 0) /
+                      sensorsWithReadings.length
+                  );
+                  const avgHum = round(
+                    sensorsWithReadings.reduce((s, d) => s + (d.latestReading?.humidity ?? 0), 0) /
+                      sensorsWithReadings.length
+                  );
+                  const avgSoil = round(
+                    sensorsWithReadings.reduce((s, d) => s + (d.latestReading?.soilMoisture ?? 0), 0) /
+                      sensorsWithReadings.length
+                  );
+                  const avgLight = round(
+                    sensorsWithReadings.reduce((s, d) => s + (d.latestReading?.light ?? 0), 0) /
+                      sensorsWithReadings.length
+                  );
+                  setActiveGreenhouse((gh) =>
+                    gh
+                      ? {
+                          ...gh,
+                          summary: {
+                            avgTemperature: avgTemp,
+                            avgHumidity: avgHum,
+                            avgSoilMoisture: avgSoil,
+                            avgLight,
+                          },
+                        }
+                      : gh
+                  );
+                }
+                return updated;
+              });
+            } else if (
+              msg.event === "device_heartbeat" ||
+              msg.event === "device_registered" ||
+              msg.event === "device_updated" ||
+              msg.event === "device_deleted" ||
+              msg.event === "device_unregistered"
+            ) {
+              loadData();
+            }
+          } catch {
+            // ignore malformed WS frames
           }
-        } catch {
-          // ignore malformed WS frames
+        };
+
+        ws.onclose = () => {
+          if (!disposed && socketRef.current === ws) {
+            reconnectTimer = setTimeout(connectWs, 3000);
+          }
+        };
+        ws.onerror = () => {
+          ws.close();
+        };
+      } catch {
+        if (!disposed) {
+          reconnectTimer = setTimeout(connectWs, 3000);
         }
-      };
-    } catch {
-      // ignore WS init failure
-    }
+      }
+    };
+
+    connectWs();
 
     return () => {
+      disposed = true;
       clearInterval(pollTimer);
-      if (ws) ws.close();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (socketRef.current) {
+        socketRef.current.close();
+        socketRef.current = null;
+      }
     };
   }, [isAuthenticated, greenhouseId, loadData]);
 
@@ -257,7 +340,7 @@ export default function GreenhouseAnalyticsDetailPage() {
       datasets: [
         {
           label: "Temperature (°C)",
-          data: filteredReadings.map((r) => r.temperature),
+          data: filteredReadings.map((r) => (typeof r.temperature === "number" ? r.temperature : null)),
           borderColor: "#10B981",
           backgroundColor: makeAreaGradient("16, 185, 129", 0.22),
           fill: true,
@@ -272,7 +355,7 @@ export default function GreenhouseAnalyticsDetailPage() {
         },
         {
           label: "Humidity (% RH)",
-          data: filteredReadings.map((r) => r.humidity),
+          data: filteredReadings.map((r) => (typeof r.humidity === "number" ? r.humidity : null)),
           borderColor: "#06B6D4",
           backgroundColor: makeAreaGradient("6, 182, 212", 0.14),
           fill: true,
@@ -287,7 +370,7 @@ export default function GreenhouseAnalyticsDetailPage() {
         },
         {
           label: "Soil Moisture (%)",
-          data: filteredReadings.map((r) => r.soilMoisture),
+          data: filteredReadings.map((r) => (typeof r.soilMoisture === "number" ? r.soilMoisture : null)),
           borderColor: "#8B5CF6",
           backgroundColor: makeAreaGradient("139, 92, 246", 0.14),
           fill: true,
@@ -302,7 +385,7 @@ export default function GreenhouseAnalyticsDetailPage() {
         },
         {
           label: "Light Intensity (lx)",
-          data: filteredReadings.map((r) => r.light),
+          data: filteredReadings.map((r) => (typeof r.light === "number" ? r.light : null)),
           borderColor: "#F59E0B",
           backgroundColor: makeAreaGradient("245, 158, 11", 0.14),
           fill: true,
@@ -564,7 +647,7 @@ export default function GreenhouseAnalyticsDetailPage() {
                     <span>Crop: {activeGreenhouse?.plant || "Vegetables"}</span>
                   </span>
                   <span className="text-sm font-medium px-3 py-1 rounded-full bg-[#202028] text-[#C7C7CC] border border-[#303038]">
-                    {activeGreenhouse?.assignedDeviceIds?.length || greenhouseDevices.length} Modules
+                    {sensorDevices.length} Sensor{sensorDevices.length !== 1 ? "s" : ""}
                   </span>
                 </h2>
                 <p className="text-sm text-[#8E8E93] mt-2 max-w-xl">
@@ -613,10 +696,10 @@ export default function GreenhouseAnalyticsDetailPage() {
                 </div>
                 <div className="bg-[#1C1C22]/80 border border-[#2C2C36] rounded-xl px-5 py-3 text-center min-w-[130px]">
                   <span className="text-xs uppercase font-semibold text-[#8E8E93] block mb-0.5">
-                    Active Modules
+                    Active Sensors
                   </span>
                   <span className="text-xl sm:text-2xl font-bold text-teal-400 tabular-nums">
-                    {greenhouseDevices.filter((d) => d.isOnline).length} / {greenhouseDevices.length} Online
+                    {sensorDevices.filter((d) => d.isOnline).length} / {sensorDevices.length} Online
                   </span>
                 </div>
               </div>
@@ -626,7 +709,7 @@ export default function GreenhouseAnalyticsDetailPage() {
 
         {/* Controls Bar: Module Filter & Data Window */}
         <div className="flex flex-wrap items-center justify-between gap-3">
-          {greenhouseDevices.length > 0 ? (
+          {sensorDevices.length > 0 ? (
             <div className="flex flex-wrap items-center gap-1.5 bg-[#141417] border border-[#282830] rounded-xl p-1 text-sm">
               <button
                 type="button"
@@ -637,9 +720,9 @@ export default function GreenhouseAnalyticsDetailPage() {
                     : "text-[#A1A1A6] hover:text-white"
                 }`}
               >
-                All Modules ({greenhouseDevices.length})
+                All Sensors ({sensorDevices.length})
               </button>
-              {greenhouseDevices.map((dev) => (
+              {sensorDevices.map((dev) => (
                 <button
                   key={dev.deviceId}
                   type="button"
@@ -714,7 +797,7 @@ export default function GreenhouseAnalyticsDetailPage() {
                 <h4 className="text-base font-semibold text-white">Temperature (°C)</h4>
               </div>
               <span className="text-lg font-bold text-emerald-400 tabular-nums">
-                {filteredReadings.length > 0
+                {typeof filteredReadings[filteredReadings.length - 1]?.temperature === "number"
                   ? `${filteredReadings[filteredReadings.length - 1].temperature.toFixed(1)}°C`
                   : "--"}
               </span>
@@ -729,7 +812,7 @@ export default function GreenhouseAnalyticsDetailPage() {
               <Line
                 data={makeSingleChartData(
                   "Temperature (°C)",
-                  filteredReadings.map((r) => r.temperature),
+                  filteredReadings.map((r) => (typeof r.temperature === "number" ? r.temperature : null)),
                   "#10B981",
                   "16, 185, 129"
                 )}
@@ -748,7 +831,7 @@ export default function GreenhouseAnalyticsDetailPage() {
                 <h4 className="text-base font-semibold text-white">Relative Humidity (% RH)</h4>
               </div>
               <span className="text-lg font-bold text-cyan-400 tabular-nums">
-                {filteredReadings.length > 0
+                {typeof filteredReadings[filteredReadings.length - 1]?.humidity === "number"
                   ? `${filteredReadings[filteredReadings.length - 1].humidity.toFixed(1)}%`
                   : "--"}
               </span>
@@ -763,7 +846,7 @@ export default function GreenhouseAnalyticsDetailPage() {
               <Line
                 data={makeSingleChartData(
                   "Humidity (%)",
-                  filteredReadings.map((r) => r.humidity),
+                  filteredReadings.map((r) => (typeof r.humidity === "number" ? r.humidity : null)),
                   "#06B6D4",
                   "6, 182, 212"
                 )}
@@ -782,7 +865,7 @@ export default function GreenhouseAnalyticsDetailPage() {
                 <h4 className="text-base font-semibold text-white">Soil Moisture (%)</h4>
               </div>
               <span className="text-lg font-bold text-purple-400 tabular-nums">
-                {filteredReadings.length > 0
+                {typeof filteredReadings[filteredReadings.length - 1]?.soilMoisture === "number"
                   ? `${filteredReadings[filteredReadings.length - 1].soilMoisture.toFixed(1)}%`
                   : "--"}
               </span>
@@ -797,7 +880,7 @@ export default function GreenhouseAnalyticsDetailPage() {
               <Line
                 data={makeSingleChartData(
                   "Soil Moisture (%)",
-                  filteredReadings.map((r) => r.soilMoisture),
+                  filteredReadings.map((r) => (typeof r.soilMoisture === "number" ? r.soilMoisture : null)),
                   "#8B5CF6",
                   "139, 92, 246"
                 )}
@@ -816,7 +899,7 @@ export default function GreenhouseAnalyticsDetailPage() {
                 <h4 className="text-base font-semibold text-white">Light Intensity (lx)</h4>
               </div>
               <span className="text-lg font-bold text-amber-400 tabular-nums">
-                {filteredReadings.length > 0
+                {typeof filteredReadings[filteredReadings.length - 1]?.light === "number"
                   ? `${filteredReadings[filteredReadings.length - 1].light.toFixed(0)} lx`
                   : "--"}
               </span>
@@ -831,7 +914,7 @@ export default function GreenhouseAnalyticsDetailPage() {
               <Line
                 data={makeSingleChartData(
                   "Light (lx)",
-                  filteredReadings.map((r) => r.light),
+                  filteredReadings.map((r) => (typeof r.light === "number" ? r.light : null)),
                   "#F59E0B",
                   "245, 158, 11"
                 )}
