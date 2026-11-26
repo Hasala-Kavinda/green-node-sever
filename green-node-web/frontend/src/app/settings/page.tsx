@@ -254,17 +254,17 @@ export default function SettingsPage() {
         {/* 1. Cluster Scope & Live Connection */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <section className="bg-[#141417] border border-[#282830] rounded-2xl p-6 space-y-4">
-            <h2 className="text-sm font-semibold text-white flex items-center space-x-2">
-              <Building2 className="w-4 h-4 text-emerald-400" />
+            <h2 className="text-base font-semibold text-white flex items-center space-x-2">
+              <Building2 className="w-5 h-5 text-emerald-400" />
               <span>Cluster Scope (Company &amp; Greenhouse)</span>
             </h2>
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-[#8E8E93] block mb-1">Active Company</label>
+                <label className="text-sm text-[#8E8E93] block mb-1.5">Active Company</label>
                 <select
                   value={selectedCompanyId}
                   onChange={(e) => handleCompanyChange(e.target.value)}
-                  className="w-full bg-[#1C1C22] border border-[#282830] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-[#1C1C22] border border-[#282830] rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
                 >
                   <option value="all">All Companies</option>
                   {companies.map((c) => (
@@ -275,11 +275,11 @@ export default function SettingsPage() {
                 </select>
               </div>
               <div>
-                <label className="text-xs text-[#8E8E93] block mb-1">Active Greenhouse</label>
+                <label className="text-sm text-[#8E8E93] block mb-1.5">Active Greenhouse</label>
                 <select
                   value={activeGreenhouseId}
                   onChange={(e) => handleGreenhouseChange(e.target.value)}
-                  className="w-full bg-[#1C1C22] border border-[#282830] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-[#1C1C22] border border-[#282830] rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
                 >
                   {filteredGreenhouses.map((g) => (
                     <option key={g.greenhouseId} value={g.greenhouseId}>
@@ -292,22 +292,22 @@ export default function SettingsPage() {
           </section>
 
           <section className="bg-[#141417] border border-[#282830] rounded-2xl p-6 space-y-4">
-            <h2 className="text-sm font-semibold text-white flex items-center space-x-2">
-              <Radio className="w-4 h-4 text-teal-400" />
+            <h2 className="text-base font-semibold text-white flex items-center space-x-2">
+              <Radio className="w-5 h-5 text-teal-400" />
               <span>Live Connection &amp; Telemetry Simulation</span>
             </h2>
             <div className="flex flex-wrap items-center gap-3">
               <div
-                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border ${
+                className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-sm font-medium border ${
                   wsConnected
                     ? "bg-teal-500/10 text-teal-300 border-teal-500/25"
                     : "bg-amber-500/10 text-amber-300 border-amber-500/25"
                 }`}
               >
-                <span className={`w-2 h-2 rounded-full ${wsConnected ? "bg-teal-400 animate-pulse" : "bg-amber-400"}`} />
+                <span className={`w-2.5 h-2.5 rounded-full ${wsConnected ? "bg-teal-400 animate-pulse" : "bg-amber-400"}`} />
                 <span>{wsConnected ? "WS Live" : "WS Offline"}</span>
               </div>
-              <div className="px-3 py-1.5 rounded-xl text-xs border border-[#282830] bg-[#1C1C22] text-[#A1A1A6]">
+              <div className="px-3.5 py-2 rounded-xl text-sm border border-[#282830] bg-[#1C1C22] text-[#A1A1A6]">
                 Backend:{" "}
                 <span className={backendStatus === "connected" ? "text-emerald-400 font-medium" : "text-amber-400 font-medium"}>
                   {backendStatus}
@@ -316,11 +316,11 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 pt-1">
+            <div className="flex flex-wrap items-center gap-2.5 pt-1">
               <select
                 value={simDeviceId}
                 onChange={(e) => setSimDeviceId(e.target.value)}
-                className="flex-1 min-w-[180px] bg-[#1C1C22] border border-[#282830] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                className="flex-1 min-w-[180px] bg-[#1C1C22] border border-[#282830] rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
               >
                 {devices.map((d) => (
                   <option key={d.deviceId} value={d.deviceId}>
@@ -331,9 +331,9 @@ export default function SettingsPage() {
               <button
                 type="button"
                 onClick={handleSimulate}
-                className="px-4 py-2 bg-[#1C1C22] hover:bg-[#282830] border border-[#282830] rounded-xl text-xs font-medium text-white flex items-center space-x-1.5 transition"
+                className="px-4 py-2.5 bg-[#1C1C22] hover:bg-[#282830] border border-[#282830] rounded-xl text-sm font-medium text-white flex items-center space-x-2 transition"
               >
-                <Activity className="w-3.5 h-3.5 text-emerald-400" />
+                <Activity className="w-4 h-4 text-emerald-400" />
                 <span>Simulate Telemetry</span>
               </button>
             </div>
@@ -342,40 +342,40 @@ export default function SettingsPage() {
 
         {/* 2. Backend API & Session */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <form onSubmit={handleSaveApiUrl} className="bg-[#141417] border border-[#282830] rounded-2xl p-6 space-y-3">
-            <h3 className="text-sm font-semibold text-white flex items-center space-x-2">
-              <Server className="w-4 h-4 text-cyan-400" />
+          <form onSubmit={handleSaveApiUrl} className="bg-[#141417] border border-[#282830] rounded-2xl p-6 space-y-3.5">
+            <h3 className="text-base font-semibold text-white flex items-center space-x-2">
+              <Server className="w-5 h-5 text-cyan-400" />
               <span>Backend API Endpoint</span>
             </h3>
-            <div className="flex gap-2">
+            <div className="flex gap-2.5">
               <input
                 type="url"
                 value={apiUrlInput}
                 onChange={(e) => setApiUrlInput(e.target.value)}
                 placeholder="https://blue-circle.onrender.com"
-                className="flex-1 bg-[#1C1C22] border border-[#282830] rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                className="flex-1 bg-[#1C1C22] border border-[#282830] rounded-xl px-3.5 py-2.5 text-sm text-white font-mono focus:outline-none focus:border-emerald-500"
               />
               <button
                 type="submit"
-                className="px-4 py-2 bg-[#1C1C22] hover:bg-[#282830] border border-[#282830] rounded-xl text-xs font-medium text-white flex items-center space-x-1.5 transition"
+                className="px-4 py-2.5 bg-[#1C1C22] hover:bg-[#282830] border border-[#282830] rounded-xl text-sm font-medium text-white flex items-center space-x-2 transition"
               >
-                <Settings className="w-3.5 h-3.5 text-cyan-400" />
+                <Settings className="w-4 h-4 text-cyan-400" />
                 <span>Save</span>
               </button>
             </div>
           </form>
 
-          <section className="bg-[#141417] border border-[#282830] rounded-2xl p-6 flex items-center justify-between">
+          <section className="bg-[#141417] border border-[#282830] rounded-2xl p-6 flex items-center justify-between gap-4">
             <div>
-              <h3 className="text-sm font-semibold text-white">Account Session</h3>
-              <p className="text-xs text-[#8E8E93] mt-0.5">Sign out from the Green Node dashboard on this browser.</p>
+              <h3 className="text-base font-semibold text-white">Account Session</h3>
+              <p className="text-sm text-[#8E8E93] mt-0.5">Sign out from the Green Node dashboard on this browser.</p>
             </div>
             <button
               type="button"
               onClick={logout}
-              className="px-4 py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 rounded-xl text-xs font-medium flex items-center space-x-1.5 transition"
+              className="px-4 py-2.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 rounded-xl text-sm font-medium flex items-center space-x-2 transition shrink-0"
             >
-              <LogOut className="w-3.5 h-3.5" />
+              <LogOut className="w-4 h-4" />
               <span>Sign Out</span>
             </button>
           </section>

@@ -1502,19 +1502,19 @@ export default function DashboardPage() {
           {/* Live Ingestion Feed */}
           <div className="bg-[#141417] border border-[#282830] rounded-2xl p-6 flex flex-col">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-medium text-white flex items-center space-x-2">
+              <h3 className="text-base font-semibold text-white flex items-center space-x-2">
                 <Activity className="w-4 h-4 text-emerald-400" />
                 <span>Live Feed ({activeGreenhouse?.name} - {activeGreenhouse?.plant})</span>
               </h3>
-              <span className="text-[11px] text-[#8E8E93]">
+              <span className="text-xs text-[#8E8E93]">
                 {recentReadings.length} Ingested Packets
               </span>
             </div>
 
             <div className="overflow-x-auto flex-1">
-              <table className="w-full text-left text-xs">
+              <table className="w-full text-left text-sm">
                 <thead>
-                  <tr className="border-b border-[#24242A] text-[#8E8E93]">
+                  <tr className="border-b border-[#24242A] text-[#8E8E93] text-xs uppercase tracking-wider">
                     <th className="py-2.5 px-3">Time</th>
                     <th className="py-2.5 px-3">Wi-Fi</th>
                     <th className="py-2.5 px-3">Temp</th>
@@ -1526,10 +1526,10 @@ export default function DashboardPage() {
                 <tbody className="divide-y divide-[#202026]">
                   {recentReadings.slice(0, 7).map((r, i) => (
                     <tr key={i} className="hover:bg-[#1A1A20] transition">
-                      <td className="py-2.5 px-3 text-[#A1A1A6] whitespace-nowrap">
+                      <td className="py-2.5 px-3 text-[#A1A1A6] whitespace-nowrap text-xs">
                         {new Date(r.timestamp).toLocaleTimeString()}
                       </td>
-                      <td className="py-2.5 px-3 text-cyan-300 font-mono text-[11px]">
+                      <td className="py-2.5 px-3 text-cyan-300 font-mono text-xs">
                         {r.wifiSsid || "--"}
                       </td>
                       <td className="py-2.5 px-3 text-emerald-400 font-medium">
@@ -1548,7 +1548,7 @@ export default function DashboardPage() {
                   ))}
                   {recentReadings.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center text-[#6E6E73]">
+                      <td colSpan={6} className="py-8 text-center text-[#6E6E73] text-sm">
                         No telemetry packets for this greenhouse yet. Click "Simulate" to test.
                       </td>
                     </tr>
@@ -1561,16 +1561,16 @@ export default function DashboardPage() {
           {/* Module & Actuator Activity Log */}
           <div className="bg-[#141417] border border-[#282830] rounded-2xl p-6 flex flex-col">
             <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-              <h3 className="text-sm font-medium text-white flex items-center space-x-2">
+              <h3 className="text-base font-semibold text-white flex items-center space-x-2">
                 <Power className="w-4 h-4 text-amber-400" />
                 <span>Module &amp; Actuator Activity Log</span>
               </h3>
               <div className="flex items-center space-x-2">
-                <div className="inline-flex rounded-lg bg-[#0E0E12] border border-[#24242C] p-0.5 text-[11px]">
+                <div className="inline-flex rounded-lg bg-[#0E0E12] border border-[#24242C] p-0.5 text-xs">
                   <button
                     type="button"
                     onClick={() => setActivityFilter("all")}
-                    className={`px-2 py-0.5 rounded-md transition ${
+                    className={`px-2.5 py-1 rounded-md transition ${
                       activityFilter === "all"
                         ? "bg-[#24242E] text-white font-medium"
                         : "text-[#8E8E93] hover:text-white"
@@ -1581,7 +1581,7 @@ export default function DashboardPage() {
                   <button
                     type="button"
                     onClick={() => setActivityFilter("actuators")}
-                    className={`px-2 py-0.5 rounded-md transition ${
+                    className={`px-2.5 py-1 rounded-md transition ${
                       activityFilter === "actuators"
                         ? "bg-amber-500/20 text-amber-300 font-medium"
                         : "text-[#8E8E93] hover:text-white"
@@ -1592,25 +1592,25 @@ export default function DashboardPage() {
                 </div>
                 <button
                   onClick={loadLogs}
-                  className="p-1 hover:text-white text-[#8E8E93] transition"
+                  className="p-1.5 hover:text-white text-[#8E8E93] transition"
                   title="Refresh module activity"
                 >
-                  <RefreshCw className="w-3.5 h-3.5" />
+                  <RefreshCw className="w-4 h-4" />
                 </button>
                 <button
                   onClick={handleClearLogs}
-                  className="p-1 hover:text-rose-400 text-[#8E8E93] transition"
+                  className="p-1.5 hover:text-rose-400 text-[#8E8E93] transition"
                   title="Clear activity logs"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <Trash2 className="w-4 h-4" />
                 </button>
               </div>
             </div>
 
             <div className="overflow-x-auto flex-1">
-              <table className="w-full text-left text-xs">
+              <table className="w-full text-left text-sm">
                 <thead>
-                  <tr className="border-b border-[#24242A] text-[#8E8E93]">
+                  <tr className="border-b border-[#24242A] text-[#8E8E93] text-xs uppercase tracking-wider">
                     <th className="py-2.5 px-3">Device</th>
                     <th className="py-2.5 px-3">What Happened</th>
                     <th className="py-2.5 px-3 text-right">Time</th>
@@ -1621,12 +1621,12 @@ export default function DashboardPage() {
                     <tr key={entry.id} className="hover:bg-[#1A1A20] transition">
                       <td className="py-2.5 px-3 align-top">
                         <div className="flex flex-col">
-                          <span className="text-white font-medium truncate max-w-[140px]" title={entry.deviceName}>
+                          <span className="text-white font-medium truncate max-w-[160px]" title={entry.deviceName}>
                             {entry.deviceName}
                           </span>
-                          <div className="flex items-center space-x-1.5 mt-0.5">
+                          <div className="flex items-center space-x-1.5 mt-1">
                             <span
-                              className={`px-1.5 py-0.2 rounded text-[10px] font-semibold ${
+                              className={`px-2 py-0.5 rounded text-xs font-semibold ${
                                 entry.isActuator
                                   ? "bg-amber-500/10 text-amber-300"
                                   : "bg-cyan-500/10 text-cyan-300"
@@ -1635,7 +1635,7 @@ export default function DashboardPage() {
                               {entry.deviceTypeLabel}
                             </span>
                             {entry.deviceSubLabel && (
-                              <span className="text-[10px] font-mono text-[#6E6E73]">
+                              <span className="text-xs font-mono text-[#6E6E73]">
                                 {entry.deviceSubLabel}
                               </span>
                             )}
@@ -1643,13 +1643,13 @@ export default function DashboardPage() {
                         </div>
                       </td>
                       <td className="py-2.5 px-3 align-top">
-                        <div className="flex flex-col gap-1">
-                          <span className="text-[#D1D1D6] line-clamp-2 max-w-[240px]" title={entry.whatHappened}>
+                        <div className="flex flex-col gap-1.5">
+                          <span className="text-[#D1D1D6] text-xs line-clamp-2 max-w-[260px]" title={entry.whatHappened}>
                             {entry.whatHappened}
                           </span>
                           <div>
                             <span
-                              className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
+                              className={`inline-block px-2 py-0.5 rounded text-xs font-bold uppercase ${
                                 entry.status === "failed"
                                   ? "bg-rose-500/10 text-rose-400"
                                   : entry.status === "warning" || entry.status === "pending"
@@ -1665,7 +1665,7 @@ export default function DashboardPage() {
                         </div>
                       </td>
                       <td
-                        className="py-2.5 px-3 text-[#6E6E73] whitespace-nowrap text-right align-top"
+                        className="py-2.5 px-3 text-[#6E6E73] text-xs whitespace-nowrap text-right align-top"
                         title={new Date(entry.timestamp).toLocaleString()}
                       >
                         {new Date(entry.timestamp).toLocaleTimeString()}
@@ -1674,7 +1674,7 @@ export default function DashboardPage() {
                   ))}
                   {moduleActivityEntries.length === 0 && (
                     <tr>
-                      <td colSpan={3} className="py-8 text-center text-[#6E6E73]">
+                      <td colSpan={3} className="py-8 text-center text-[#6E6E73] text-sm">
                         {activityFilter === "actuators"
                           ? "No actuator activity recorded yet."
                           : "No module or actuator activity recorded yet."}

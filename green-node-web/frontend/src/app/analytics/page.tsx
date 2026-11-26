@@ -213,17 +213,17 @@ export default function AnalyticsGreenhousesPage() {
                     {/* Top Header: Name, Crop & Status */}
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="flex items-center space-x-1.5 text-[11px] font-semibold uppercase tracking-wider text-emerald-400 mb-1">
+                        <div className="flex items-center space-x-1.5 text-xs font-semibold uppercase tracking-wider text-emerald-400 mb-1">
                           <Building2 className="w-3.5 h-3.5 shrink-0" />
                           <span className="truncate">
                             {gh.companyName} · {gh.companyLocation}
                           </span>
                         </div>
-                        <h3 className="text-lg font-bold text-white tracking-tight group-hover:text-emerald-400 transition-colors truncate">
+                        <h3 className="text-xl font-bold text-white tracking-tight group-hover:text-emerald-400 transition-colors truncate">
                           {gh.name}
                         </h3>
-                        <p className="text-xs text-[#8E8E93] mt-0.5 flex items-center space-x-1">
-                          <Sprout className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <p className="text-sm text-[#8E8E93] mt-0.5 flex items-center space-x-1.5">
+                          <Sprout className="w-4 h-4 text-emerald-400 shrink-0" />
                           <span>
                             Crop: <span className="font-semibold text-[#E5E5EA]">{gh.plant}</span>
                           </span>
@@ -231,14 +231,14 @@ export default function AnalyticsGreenhousesPage() {
                       </div>
 
                       <span
-                        className={`shrink-0 inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold border ${
+                        className={`shrink-0 inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-semibold border ${
                           hasOnline
                             ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/25"
                             : "bg-[#1C1C22] text-[#8E8E93] border-[#2C2C36]"
                         }`}
                       >
                         <span
-                          className={`w-1.5 h-1.5 rounded-full ${
+                          className={`w-2 h-2 rounded-full ${
                             hasOnline ? "bg-emerald-400 animate-pulse" : "bg-[#6E6E73]"
                           }`}
                         />
@@ -247,30 +247,30 @@ export default function AnalyticsGreenhousesPage() {
                     </div>
 
                     {/* Quick Stats Grid */}
-                    <div className="mt-5 grid grid-cols-2 gap-3 p-3.5 bg-[#0E0E12] rounded-xl border border-[#22222A]">
-                      <div className="flex items-center gap-2.5">
+                    <div className="mt-5 grid grid-cols-2 gap-3 p-4 bg-[#0E0E12] rounded-xl border border-[#22222A]">
+                      <div className="flex items-center gap-3">
                         <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400">
-                          <Thermometer className="w-4 h-4" />
+                          <Thermometer className="w-5 h-5" />
                         </div>
                         <div>
-                          <span className="text-[10px] font-semibold uppercase tracking-wider text-[#8E8E93] block">
+                          <span className="text-xs font-semibold uppercase tracking-wider text-[#8E8E93] block">
                             Temperature
                           </span>
-                          <span className="text-sm font-bold text-white">
+                          <span className="text-base sm:text-lg font-bold text-white">
                             {tempVal !== null && tempVal !== undefined ? `${tempVal}°C` : "--"}
                           </span>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2.5">
+                      <div className="flex items-center gap-3">
                         <div className="p-2 rounded-lg bg-purple-500/10 text-purple-400">
-                          <Droplets className="w-4 h-4" />
+                          <Droplets className="w-5 h-5" />
                         </div>
                         <div>
-                          <span className="text-[10px] font-semibold uppercase tracking-wider text-[#8E8E93] block">
+                          <span className="text-xs font-semibold uppercase tracking-wider text-[#8E8E93] block">
                             Soil Moisture
                           </span>
-                          <span className="text-sm font-bold text-white">
+                          <span className="text-base sm:text-lg font-bold text-white">
                             {soilVal !== null && soilVal !== undefined ? `${soilVal}%` : "--"}
                           </span>
                         </div>
@@ -278,13 +278,13 @@ export default function AnalyticsGreenhousesPage() {
                     </div>
 
                     {/* Linked Modules Summary */}
-                    <div className="mt-4 space-y-2 text-xs text-[#8E8E93] px-1">
+                    <div className="mt-4 space-y-2 text-sm text-[#8E8E93] px-1">
                       <div className="flex items-center justify-between">
                         <span className="font-medium text-[#A1A1A6]">
                           Modules: {ghDevices.length} linked
                         </span>
                         <span
-                          className={`inline-flex items-center gap-1 text-[11px] font-medium ${
+                          className={`inline-flex items-center gap-1.5 text-xs font-medium ${
                             hasOnline ? "text-emerald-400" : "text-[#6E6E73]"
                           }`}
                         >
@@ -305,11 +305,11 @@ export default function AnalyticsGreenhousesPage() {
                       </div>
 
                       {ghDevices.length > 0 && (
-                        <div className="border-t border-[#202026] pt-2 space-y-1">
+                        <div className="border-t border-[#202026] pt-2.5 space-y-1.5">
                           {ghDevices.slice(0, 2).map((dev) => (
                             <div
                               key={dev.deviceId}
-                              className="flex items-center justify-between gap-2 text-[11px]"
+                              className="flex items-center justify-between gap-2 text-xs"
                             >
                               <span className="text-[#C7C7CC] truncate">{dev.name}</span>
                               <span
@@ -322,7 +322,7 @@ export default function AnalyticsGreenhousesPage() {
                             </div>
                           ))}
                           {ghDevices.length > 2 && (
-                            <p className="text-[10px] text-[#6E6E73]">
+                            <p className="text-xs text-[#6E6E73]">
                               +{ghDevices.length - 2} more module{ghDevices.length - 2 !== 1 ? "s" : ""}
                             </p>
                           )}
@@ -333,11 +333,11 @@ export default function AnalyticsGreenhousesPage() {
 
                   {/* Action Footer */}
                   <div className="mt-5 pt-3.5 border-t border-[#202026] flex items-center justify-between">
-                    <span className="text-[11px] font-mono text-[#6E6E73] truncate">
+                    <span className="text-xs font-mono text-[#6E6E73] truncate">
                       {gh.companyId}
                     </span>
 
-                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-400 group-hover:text-emerald-300 transition-colors">
+                    <span className="inline-flex items-center gap-1 text-sm font-semibold text-emerald-400 group-hover:text-emerald-300 transition-colors">
                       <span>View Analytics</span>
                       <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
                     </span>
