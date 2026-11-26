@@ -140,6 +140,7 @@ export default function DashboardPage() {
     return "all";
   });
   const [copiedDeviceId, setCopiedDeviceId] = useState<string | null>(null);
+  const [focusedActuatorId, setFocusedActuatorId] = useState<string | null>(null);
   const [moduleCategoryFilter, setModuleCategoryFilter] = useState<"all" | "sensor" | "actuator">("all");
   const [registerModuleTab, setRegisterModuleTab] = useState<"sensor" | "actuator">("sensor");
 
@@ -1117,30 +1118,27 @@ export default function DashboardPage() {
         <section className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <h3 className="text-base font-semibold text-white tracking-tight flex items-center space-x-2">
-                <Cpu className="w-5 h-5 text-emerald-400" />
+              <h3 className="text-xl sm:text-2xl font-bold text-white tracking-tight flex flex-wrap items-center gap-2.5">
+                <Cpu className="w-6 h-6 text-emerald-400" />
                 <span>Registered Modules</span>
-                <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                <span className="text-sm px-3 py-1 rounded-full font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
                   {allDevices.filter((d) => getModuleCategory(d) === "sensor").length} Sensor
                   {allDevices.filter((d) => getModuleCategory(d) === "sensor").length !== 1 ? "s" : ""}
                 </span>
-                <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                <span className="text-sm px-3 py-1 rounded-full font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
                   {allDevices.filter((d) => getModuleCategory(d) === "actuator").length} Actuator
                   {allDevices.filter((d) => getModuleCategory(d) === "actuator").length !== 1 ? "s" : ""}
                 </span>
               </h3>
-              <p className="text-xs text-[#8E8E93] mt-0.5">
-                Sensor modules and actuators authorized with unique UUIDs. Copy the UUID to provision the ESP32 node via captive portal.
-              </p>
             </div>
 
             {/* Filter Toggle & Register Action */}
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center bg-[#141417] border border-[#282830] rounded-xl p-1 text-xs">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <div className="flex items-center bg-[#141417] border border-[#282830] rounded-xl p-1 text-sm">
                 <button
                   type="button"
                   onClick={() => setModuleCategoryFilter("all")}
-                  className={`px-2.5 py-1.5 rounded-lg font-medium transition ${
+                  className={`px-3.5 py-2 rounded-lg font-medium transition ${
                     moduleCategoryFilter === "all"
                       ? "bg-[#282832] text-white shadow-sm"
                       : "text-[#A1A1A6] hover:text-white"
@@ -1151,7 +1149,7 @@ export default function DashboardPage() {
                 <button
                   type="button"
                   onClick={() => setModuleCategoryFilter("sensor")}
-                  className={`px-2.5 py-1.5 rounded-lg font-medium transition ${
+                  className={`px-3.5 py-2 rounded-lg font-medium transition ${
                     moduleCategoryFilter === "sensor"
                       ? "bg-emerald-500 text-white shadow-sm"
                       : "text-[#A1A1A6] hover:text-white"
@@ -1162,7 +1160,7 @@ export default function DashboardPage() {
                 <button
                   type="button"
                   onClick={() => setModuleCategoryFilter("actuator")}
-                  className={`px-2.5 py-1.5 rounded-lg font-medium transition ${
+                  className={`px-3.5 py-2 rounded-lg font-medium transition ${
                     moduleCategoryFilter === "actuator"
                       ? "bg-cyan-500 text-white shadow-sm"
                       : "text-[#A1A1A6] hover:text-white"
@@ -1172,7 +1170,7 @@ export default function DashboardPage() {
                 </button>
               </div>
 
-              <div className="flex items-center bg-[#141417] border border-[#282830] rounded-xl p-1 text-xs">
+              <div className="flex items-center bg-[#141417] border border-[#282830] rounded-xl p-1 text-sm">
                 <button
                   type="button"
                   onClick={() => {
@@ -1181,7 +1179,7 @@ export default function DashboardPage() {
                       localStorage.setItem("green_node_device_filter", "all");
                     }
                   }}
-                  className={`px-3 py-1.5 rounded-lg font-medium transition ${
+                  className={`px-3.5 py-2 rounded-lg font-medium transition ${
                     deviceViewFilter === "all"
                       ? "bg-emerald-500 text-white shadow-sm"
                       : "text-[#A1A1A6] hover:text-white"
@@ -1197,7 +1195,7 @@ export default function DashboardPage() {
                       localStorage.setItem("green_node_device_filter", "current");
                     }
                   }}
-                  className={`px-3 py-1.5 rounded-lg font-medium transition ${
+                  className={`px-3.5 py-2 rounded-lg font-medium transition ${
                     deviceViewFilter === "current"
                       ? "bg-emerald-500 text-white shadow-sm"
                       : "text-[#A1A1A6] hover:text-white"
@@ -1207,21 +1205,13 @@ export default function DashboardPage() {
                 </button>
               </div>
 
-              <button
-                onClick={() => {
-                  if (greenhouses.length === 0) {
-                    alert("Please register a greenhouse first!");
-                    setShowNewGreenhouseModal(true);
-                    return;
-                  }
-                  setNewDeviceGreenhouseId(activeGreenhouseId);
-                  setShowRegisterModal(true);
-                }}
-                className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white rounded-xl text-xs font-semibold shadow-md shadow-emerald-500/20 transition flex items-center space-x-1.5"
+              <Link
+                href="/registers?tab=module"
+                className="px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white rounded-xl text-sm font-semibold shadow-md shadow-emerald-500/20 transition flex items-center space-x-1.5"
               >
                 <Plus className="w-4 h-4" />
-                <span>+ Register Module</span>
-              </button>
+                <span>Register Module</span>
+              </Link>
             </div>
           </div>
 
@@ -1252,16 +1242,13 @@ export default function DashboardPage() {
                   <p className="text-xs text-[#8E8E93] max-w-md mx-auto mt-1 mb-4">
                     Register a sensor module or actuator to generate its unique UUID. Copy that UUID and paste it into the ESP32 Onboard Captive Portal (GreenNode-Setup).
                   </p>
-                  <button
-                    onClick={() => {
-                      setNewDeviceGreenhouseId(activeGreenhouseId);
-                      setShowRegisterModal(true);
-                    }}
-                    className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-white rounded-xl text-xs font-medium shadow-md shadow-emerald-500/20 transition inline-flex items-center space-x-2"
+                  <Link
+                    href="/registers?tab=module"
+                    className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-white rounded-xl text-sm font-medium shadow-md shadow-emerald-500/20 transition inline-flex items-center space-x-2"
                   >
                     <Plus className="w-4 h-4" />
                     <span>Register Module</span>
-                  </button>
+                  </Link>
                 </div>
               );
             }
@@ -1301,7 +1288,7 @@ export default function DashboardPage() {
                 <div
                   key={dev.deviceId}
                   onClick={() => handleSelectModule(dev)}
-                  className={`bg-[#141417] border rounded-2xl p-4 cursor-pointer transition relative group ${
+                  className={`bg-[#141417] border rounded-2xl p-5 cursor-pointer transition relative group ${
                     isFocused
                       ? isActuator
                         ? "border-cyan-500 shadow-xl shadow-cyan-500/15 ring-1 ring-cyan-500/40"
@@ -1376,14 +1363,14 @@ export default function DashboardPage() {
 
                   {/* Metrics or Actuator Details */}
                   {isActuator ? (
-                    <div className="grid grid-cols-2 gap-2.5 max-w-[260px] mx-auto pt-2.5 border-t border-[#202026]">
-                      <div className="aspect-square bg-[#18181D] rounded-xl p-2.5 flex flex-col items-center justify-center text-center gap-1">
+                    <div className="grid grid-cols-2 gap-2.5 pt-2.5 border-t border-[#202026]">
+                      <div className="bg-[#18181D] rounded-xl p-3 text-center">
                         <span className="text-xs text-[#8E8E93] font-medium block">Actuator Type</span>
                         <span className="text-base font-bold text-cyan-300 capitalize">
                           {actuatorMeta.actuatorType}
                         </span>
                       </div>
-                      <div className="aspect-square bg-[#18181D] rounded-xl p-2.5 flex flex-col items-center justify-center text-center gap-1">
+                      <div className="bg-[#18181D] rounded-xl p-3 text-center">
                         <span className="text-xs text-[#8E8E93] font-medium block">Sub-Node ID</span>
                         <span className="text-base font-bold font-mono text-amber-300">
                           {actuatorMeta.subNodeId || "Unmapped"}
@@ -1391,26 +1378,26 @@ export default function DashboardPage() {
                       </div>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-2 gap-2.5 max-w-[260px] mx-auto pt-2.5 border-t border-[#202026]">
-                      <div className="aspect-square bg-[#18181D] rounded-xl p-2.5 flex flex-col items-center justify-center text-center gap-1">
+                    <div className="grid grid-cols-2 gap-2.5 pt-2.5 border-t border-[#202026]">
+                      <div className="bg-[#18181D] rounded-xl p-3 text-center">
                         <span className="text-xs text-[#8E8E93] font-medium block">Temp</span>
                         <span className="text-lg font-bold text-emerald-400">
                           {r?.temperature !== undefined ? `${r.temperature.toFixed(1)}°C` : "--"}
                         </span>
                       </div>
-                      <div className="aspect-square bg-[#18181D] rounded-xl p-2.5 flex flex-col items-center justify-center text-center gap-1">
+                      <div className="bg-[#18181D] rounded-xl p-3 text-center">
                         <span className="text-xs text-[#8E8E93] font-medium block">Humidity</span>
                         <span className="text-lg font-bold text-cyan-400">
                           {r?.humidity !== undefined ? `${r.humidity.toFixed(1)}%` : "--"}
                         </span>
                       </div>
-                      <div className="aspect-square bg-[#18181D] rounded-xl p-2.5 flex flex-col items-center justify-center text-center gap-1">
+                      <div className="bg-[#18181D] rounded-xl p-3 text-center">
                         <span className="text-xs text-[#8E8E93] font-medium block">Soil</span>
                         <span className="text-lg font-bold text-purple-400">
                           {r?.soilMoisture !== undefined ? `${r.soilMoisture.toFixed(1)}%` : "--"}
                         </span>
                       </div>
-                      <div className="aspect-square bg-[#18181D] rounded-xl p-2.5 flex flex-col items-center justify-center text-center gap-1">
+                      <div className="bg-[#18181D] rounded-xl p-3 text-center">
                         <span className="text-xs text-[#8E8E93] font-medium block">Light</span>
                         <span className="text-lg font-bold text-amber-400">
                           {r?.light !== undefined ? `${r.light.toFixed(0)} lx` : "--"}
@@ -1470,50 +1457,133 @@ export default function DashboardPage() {
               );
             };
 
+            const sensorList = displayed.filter((d) => getModuleCategory(d) === "sensor");
+            const actuatorList = displayed.filter((d) => getModuleCategory(d) === "actuator");
+            const selectedSensor =
+              sensorList.find((d) => d.deviceId === focusedDeviceId) || sensorList[0] || null;
+            const selectedActuator =
+              actuatorList.find((d) => d.deviceId === focusedActuatorId) || actuatorList[0] || null;
+
             return (
-              <div className="space-y-4">
-                <div className="flex items-center space-x-2 text-sm font-semibold text-emerald-400 uppercase tracking-wider">
-                  <Cpu className="w-4 h-4" />
-                  <span>Sensor Module Registrations ({displayed.length})</span>
-                </div>
+              <div className="space-y-8">
+                {/* 1. SENSOR MODULE REGISTRATIONS */}
+                {moduleCategoryFilter !== "actuator" && (
+                  <div className="space-y-4">
+                    <div className="flex items-center space-x-2 text-sm font-semibold text-emerald-400 uppercase tracking-wider">
+                      <Cpu className="w-4 h-4" />
+                      <span>Sensor Module Registrations ({sensorList.length})</span>
+                    </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-                  {/* Left Column: List of all available sensors and actuators (names only) */}
-                  <div className="lg:col-span-4 bg-[#141417] border border-[#282830] rounded-2xl p-3 space-y-2 max-h-[560px] overflow-y-auto">
-                    {displayed.map((dev) => {
-                      const isSelected = selectedModule?.deviceId === dev.deviceId;
-                      const isActuator = getModuleCategory(dev) === "actuator";
-                      return (
-                        <button
-                          key={dev.deviceId}
-                          type="button"
-                          onClick={() => handleSelectModule(dev)}
-                          className={`w-full flex items-center justify-between gap-2 text-left px-4 py-3 rounded-xl text-base font-medium transition border ${
-                            isSelected
-                              ? isActuator
-                                ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/40"
-                                : "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
-                              : "bg-[#18181D] text-white border-transparent hover:border-[#3E3E48] hover:bg-[#1E1E25]"
-                          }`}
+                    {sensorList.length === 0 ? (
+                      <div className="bg-[#141417] border border-[#282830] rounded-2xl p-8 text-center">
+                        <p className="text-sm text-[#8E8E93]">No sensor modules registered in this view.</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                        {/* Left Column: List of sensors */}
+                        <div className="lg:col-span-4 bg-[#141417] border border-[#282830] rounded-2xl p-3 space-y-2 max-h-[560px] overflow-y-auto">
+                          {sensorList.map((dev) => {
+                            const isSelected = selectedSensor?.deviceId === dev.deviceId;
+                            return (
+                              <button
+                                key={dev.deviceId}
+                                type="button"
+                                onClick={() => handleSelectModule(dev)}
+                                className={`w-full flex items-center justify-between gap-2 text-left px-4 py-3 rounded-xl text-base font-medium transition border ${
+                                  isSelected
+                                    ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
+                                    : "bg-[#18181D] text-white border-transparent hover:border-[#3E3E48] hover:bg-[#1E1E25]"
+                                }`}
+                              >
+                                <span className="truncate">{dev.name}</span>
+                                <span
+                                  title={dev.isOnline ? "Online" : "Offline"}
+                                  aria-label={dev.isOnline ? "Online" : "Offline"}
+                                  className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                                    dev.isOnline ? "bg-emerald-400" : "bg-rose-500"
+                                  }`}
+                                />
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {/* Right Column: Selected sensor details */}
+                        <div className="lg:col-span-8">
+                          {selectedSensor ? renderModuleCard(selectedSensor) : null}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 2. ACTUATOR REGISTRATIONS */}
+                {moduleCategoryFilter !== "sensor" && (
+                  <div className="space-y-4">
+                    <div className="flex items-center space-x-2 text-sm font-semibold text-cyan-300 uppercase tracking-wider">
+                      <Power className="w-4 h-4" />
+                      <span>Actuator Registrations ({actuatorList.length})</span>
+                    </div>
+
+                    {actuatorList.length === 0 ? (
+                      <div className="bg-[#141417] border border-[#282830] rounded-2xl p-8 flex flex-wrap items-center justify-between gap-4">
+                        <div className="flex items-center space-x-3">
+                          <div className="p-2.5 rounded-xl bg-cyan-500/10 text-cyan-400">
+                            <Power className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold text-white">No Actuators Registered</p>
+                            <p className="text-xs text-[#8E8E93]">
+                              Register an actuator module in Settings to see and manage it here.
+                            </p>
+                          </div>
+                        </div>
+                        <Link
+                          href="/registers?tab=module&category=actuator"
+                          className="px-4 py-2 bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 rounded-xl text-sm font-semibold transition inline-flex items-center space-x-1.5"
                         >
-                          <span className="truncate">{dev.name}</span>
-                          <span
-                            title={dev.isOnline ? "Online" : "Offline"}
-                            aria-label={dev.isOnline ? "Online" : "Offline"}
-                            className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                              dev.isOnline ? "bg-emerald-400" : "bg-rose-500"
-                            }`}
-                          />
-                        </button>
-                      );
-                    })}
-                  </div>
+                          <Plus className="w-4 h-4" />
+                          <span>Register Actuator</span>
+                        </Link>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                        {/* Left Column: List of actuators */}
+                        <div className="lg:col-span-4 bg-[#141417] border border-[#282830] rounded-2xl p-3 space-y-2 max-h-[560px] overflow-y-auto">
+                          {actuatorList.map((dev) => {
+                            const isSelected = selectedActuator?.deviceId === dev.deviceId;
+                            return (
+                              <button
+                                key={dev.deviceId}
+                                type="button"
+                                onClick={() => setFocusedActuatorId(dev.deviceId)}
+                                className={`w-full flex items-center justify-between gap-2 text-left px-4 py-3 rounded-xl text-base font-medium transition border ${
+                                  isSelected
+                                    ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/40"
+                                    : "bg-[#18181D] text-white border-transparent hover:border-[#3E3E48] hover:bg-[#1E1E25]"
+                                }`}
+                              >
+                                <span className="truncate">{dev.name}</span>
+                                <span
+                                  title={dev.isOnline ? "Online" : "Offline"}
+                                  aria-label={dev.isOnline ? "Online" : "Offline"}
+                                  className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                                    dev.isOnline ? "bg-emerald-400" : "bg-rose-500"
+                                  }`}
+                                />
+                              </button>
+                            );
+                          })}
+                        </div>
 
-                  {/* Right Column: Selected sensor or actuator details */}
-                  <div className="lg:col-span-4">
-                    {selectedModule ? renderModuleCard(selectedModule) : null}
+                        {/* Right Column: Selected actuator details */}
+                        <div className="lg:col-span-8">
+                          {selectedActuator ? renderModuleCard(selectedActuator) : null}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
+                )}
               </div>
             );
           })()}

@@ -118,6 +118,20 @@ export default function NewRegistersPage() {
   };
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const qs = new URLSearchParams(window.location.search);
+      const tab = qs.get("tab");
+      const category = qs.get("category");
+      if (tab === "company" || tab === "greenhouse" || tab === "module") {
+        setActiveTab(tab);
+      }
+      if (category === "sensor" || category === "actuator") {
+        setModuleCategory(category);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
     if (isAuthenticated) {
       loadData();
     }
