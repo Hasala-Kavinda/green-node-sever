@@ -76,6 +76,7 @@ export default function DashboardPage() {
     }
     return [];
   });
+  const [isLoadingGreenhouseData, setIsLoadingGreenhouseData] = useState(false);
   const [greenhouses, setGreenhouses] = useState<Greenhouse[]>([]);
   const [isLoadingGreenhouses, setIsLoadingGreenhouses] = useState(true);
   const [greenhouseLoadError, setGreenhouseLoadError] = useState<string | null>(null);
@@ -306,6 +307,7 @@ export default function DashboardPage() {
   const loadGreenhouseData = async (ghId: string, preloadedDevices?: Device[]) => {
     if (!ghId) return;
     const requestId = ++greenhouseLoadRequestRef.current;
+    setIsLoadingGreenhouseData(true);
     setGreenhouseDataError(null);
     try {
       const [overview, devs] = await Promise.all([
@@ -366,6 +368,10 @@ export default function DashboardPage() {
       if (requestId !== greenhouseLoadRequestRef.current) return;
       setGreenhouseDataError(err instanceof Error ? err.message : "Could not load greenhouse details");
       console.error("Failed to load greenhouse data:", err);
+    } finally {
+      if (requestId === greenhouseLoadRequestRef.current) {
+        setIsLoadingGreenhouseData(false);
+      }
     }
   };
 
@@ -846,11 +852,15 @@ export default function DashboardPage() {
                       setActiveGreenhouseId(greenhouse.greenhouseId);
                       setActiveGreenhouse(greenhouse);
                       setGreenhouseDevices([]);
+                      setIsLoadingGreenhouseData(true);
                       setDeviceViewFilter("current");
                       setHasConfirmedGreenhouse(true);
                       if (typeof window !== "undefined") {
                         localStorage.setItem("green_node_active_greenhouse", greenhouse.greenhouseId);
                         localStorage.setItem("green_node_device_filter", "current");
+                      }
+                      if (greenhouse.greenhouseId === activeGreenhouseId) {
+                        void loadGreenhouseData(greenhouse.greenhouseId);
                       }
                     }}
                     className="text-left bg-[#141417] border border-[#282830] hover:border-emerald-500/50 rounded-2xl p-6 transition-all hover:shadow-xl hover:shadow-emerald-500/10"
@@ -1098,7 +1108,10 @@ export default function DashboardPage() {
           </div>
 
           {/* Active Filter Notice if viewing greenhouse with 0 devices while others exist */}
-          {deviceViewFilter === "current" && greenhouseDevices.length === 0 && allDevices.length > 0 && (
+          {deviceViewFilter === "current" &&
+            !isLoadingGreenhouseData &&
+            greenhouseDevices.length === 0 &&
+            allDevices.length > 0 && (
             <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-2.5 text-xs text-amber-300 flex items-center justify-between">
               <span>
                 No modules assigned to <strong>{activeGreenhouse?.name}</strong> yet, but <strong>{allDevices.length}</strong> module(s) are registered in other greenhouses.
@@ -1124,6 +1137,19 @@ export default function DashboardPage() {
                   <p className="text-xs text-[#8E8E93] max-w-md mx-auto mt-1">
                     Choose a greenhouse above to view its registered sensors and actuators.
                   </p>
+                </div>
+              );
+            }
+
+            if (isLoadingGreenhouseData && displayed.length === 0) {
+              return (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {[0, 1].map((item) => (
+                    <div
+                      key={item}
+                      className="h-52 rounded-2xl bg-[#141417] border border-[#282830] animate-pulse"
+                    />
+                  ))}
                 </div>
               );
             }
