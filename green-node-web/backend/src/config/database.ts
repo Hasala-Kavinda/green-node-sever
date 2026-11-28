@@ -31,7 +31,7 @@ export async function connectDatabase(): Promise<string> {
 
 async function startInMemoryMongo(): Promise<string> {
   try {
-    // @ts-ignore`n    const { MongoMemoryServer } = await import('mongodb-memory-server');
+    const { MongoMemoryServer } = await import('mongodb-memory-server');
     mongodInstance = await MongoMemoryServer.create({
       instance: {
         dbName: 'green_node'
