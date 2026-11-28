@@ -334,7 +334,11 @@ export async function sendTestReading(payload: Partial<Reading>) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  return res.json();
+  const json = await res.json().catch(() => null);
+  if (!res.ok || !json) {
+    throw new Error(json?.error || "Failed to send test reading");
+  }
+  return json;
 }
 
 
