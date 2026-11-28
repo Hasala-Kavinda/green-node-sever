@@ -1035,24 +1035,33 @@ export class ReadingService {
     if (input.port) updateFields.port = input.port;
     if (input.rssi !== undefined) updateFields.rssi = input.rssi;
 
-    await Device.updateOne({ _id: registeredDevice._id }, { $set: updateFields });
+    const updatedDevice = await Device.findOneAndUpdate(
+      { _id: registeredDevice._id },
+      { $set: updateFields },
+      { returnDocument: 'after' }
+    );
+    if (!updatedDevice) {
+      const err: any = new Error(`Heartbeat rejected: Device "${normalizedDeviceId}" no longer exists.`);
+      err.statusCode = 404;
+      throw err;
+    }
 
     broadcast('device_heartbeat', {
-      deviceId: registeredDevice.deviceId,
-      name: registeredDevice.name,
-      companyId: registeredDevice.companyId,
-      companyName: registeredDevice.companyName,
-      companyLocation: registeredDevice.companyLocation,
-      greenhouseId: registeredDevice.greenhouseId,
-      greenhouseName: registeredDevice.greenhouseName,
-      plant: registeredDevice.plant,
+      deviceId: updatedDevice.deviceId,
+      name: updatedDevice.name,
+      companyId: updatedDevice.companyId,
+      companyName: updatedDevice.companyName,
+      companyLocation: updatedDevice.companyLocation,
+      greenhouseId: updatedDevice.greenhouseId,
+      greenhouseName: updatedDevice.greenhouseName,
+      plant: updatedDevice.plant,
       status: 'online',
-      lastSeen: now.toISOString(),
-      ipAddress: updateFields.ipAddress || registeredDevice.ipAddress,
+      lastSeen: updatedDevice.lastSeen?.toISOString(),
+      ipAddress: updatedDevice.ipAddress,
       rssi: input.rssi
     });
 
-    return registeredDevice;
+    return updatedDevice;
   }
 
   /**
