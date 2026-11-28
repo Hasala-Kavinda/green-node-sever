@@ -10,6 +10,7 @@ import os from 'os';
 import { config } from './config/env.js';
 import { connectDatabase, disconnectDatabase } from './config/database.js';
 import { initWebSocketServer } from './services/websocket.service.js';
+import { startDeviceStatusMonitor } from './services/deviceStatusMonitor.service.js';
 import readingRoutes from './routes/reading.routes.js';
 import healthRoutes from './routes/health.routes.js';
 import hubCommandRoutes from './routes/hubCommand.routes.js';
@@ -38,6 +39,7 @@ const publicDir = fs.existsSync(path.join(__dirname, 'public'))
 
 const app = express();
 const server = http.createServer(app);
+let stopDeviceStatusMonitor: (() => void) | null = null;
 
 // Initialize WebSockets
 initWebSocketServer(server);
@@ -122,6 +124,7 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 async function startServer() {
   try {
     await connectDatabase();
+    stopDeviceStatusMonitor = await startDeviceStatusMonitor();
 
     const lanIps = getLocalIpAddresses();
     server.listen(config.port, '0.0.0.0', () => {
@@ -148,6 +151,7 @@ async function startServer() {
 // Graceful Shutdown
 const handleShutdown = async (signal: string) => {
   console.log(`\nReceived ${signal}. Shutting down gracefully...`);
+  stopDeviceStatusMonitor?.();
   server.close(async () => {
     await disconnectDatabase();
     console.log('Server and database connections closed. Bye!');

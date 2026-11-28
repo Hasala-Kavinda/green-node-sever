@@ -16,6 +16,78 @@ import type {
 } from '../schemas/reading.schema.js';
 
 export class ReadingService {
+  private static readonly actuatorProbeFailures = new Map<string, number>();
+
+  static async refreshDeviceStatuses(): Promise<void> {
+    const devices = await Device.find({ isRegistered: true }).lean();
+    const registeredDeviceIds = new Set(devices.map((device) => device.deviceId));
+
+    await Promise.all(
+      devices.map(async (device) => {
+        let status: 'online' | 'warning' | 'offline';
+        let lastSeen: Date | undefined;
+
+        if (
+          (device.moduleCategory === 'actuator' || device.sensorType === 'actuator') &&
+          device.ipAddress
+        ) {
+          const host = device.ipAddress.includes(':') && !device.ipAddress.startsWith('[')
+            ? `[${device.ipAddress}]`
+            : device.ipAddress;
+          let isReachable = false;
+
+          try {
+            const response = await fetch(`http://${host}:${device.port || 80}/health`, {
+              method: 'GET',
+              headers: { Accept: 'application/json, text/plain, */*' },
+              signal: AbortSignal.timeout(2500)
+            });
+            isReachable = response.ok;
+          } catch {
+            isReachable = false;
+          }
+
+          if (isReachable) {
+            this.actuatorProbeFailures.delete(device.deviceId);
+            status = 'online';
+            lastSeen = new Date();
+          } else {
+            const failures = (this.actuatorProbeFailures.get(device.deviceId) || 0) + 1;
+            this.actuatorProbeFailures.set(device.deviceId, failures);
+            status = failures >= 3 ? 'offline' : 'warning';
+          }
+        } else {
+          this.actuatorProbeFailures.delete(device.deviceId);
+          status = this.computeHealth(device).status;
+        }
+
+        if (!lastSeen && device.status === status) return;
+
+        const update: Record<string, unknown> = { status };
+        if (lastSeen) update.lastSeen = lastSeen;
+
+        const previous = await Device.findOneAndUpdate(
+          { _id: device._id, lastSeen: device.lastSeen },
+          { $set: update },
+          { new: false }
+        ).select('status').lean();
+
+        if (previous && previous.status !== status) {
+          broadcast('device_status_changed', {
+            deviceId: device.deviceId,
+            status,
+            isOnline: status === 'online',
+            lastSeen: lastSeen || device.lastSeen
+          });
+        }
+      })
+    );
+
+    for (const deviceId of this.actuatorProbeFailures.keys()) {
+      if (!registeredDeviceIds.has(deviceId)) this.actuatorProbeFailures.delete(deviceId);
+    }
+  }
+
   /**
    * Save a single sensor reading and broadcast it in real time.
    * STRICT REGISTRATION ENFORCED: Rejects any ESP UUID that has not been pre-registered.
@@ -943,6 +1015,8 @@ export class ReadingService {
       throw err;
     }
 
+    this.actuatorProbeFailures.delete(normalizedDeviceId);
+
     const now = new Date();
     const updateFields: any = {
       lastSeen: now,
@@ -1059,6 +1133,15 @@ export class ReadingService {
           { $set: { lastSeen: new Date(), status: 'online' } }
         );
 
+        if (device.status !== 'online') {
+          broadcast('device_status_changed', {
+            deviceId: device.deviceId,
+            status: 'online',
+            isOnline: true,
+            lastSeen: new Date().toISOString()
+          });
+        }
+
         broadcast('device_ping_success', {
           deviceId: device.deviceId,
           latencyMs,
@@ -1094,6 +1177,15 @@ export class ReadingService {
         { $set: { status: 'offline' } }
       );
 
+      if (device.status !== 'offline') {
+        broadcast('device_status_changed', {
+          deviceId: device.deviceId,
+          status: 'offline',
+          isOnline: false,
+          lastSeen: device.lastSeen
+        });
+      }
+
       return {
         found: true,
         isReachable: false,
@@ -1119,6 +1211,18 @@ export class ReadingService {
     const now = Date.now();
     const secondsSinceLastSeen = Math.max(0, Math.floor((now - lastSeenTime) / 1000));
     const timeout = device.heartbeatTimeoutSeconds || 60;
+
+    if (
+      (device.moduleCategory === 'actuator' || device.sensorType === 'actuator') &&
+      device.ipAddress &&
+      (device.status === 'warning' || device.status === 'offline')
+    ) {
+      return {
+        isOnline: false,
+        status: device.status,
+        secondsSinceLastSeen
+      };
+    }
 
     let status: 'online' | 'warning' | 'offline' = 'online';
     let isOnline = false;

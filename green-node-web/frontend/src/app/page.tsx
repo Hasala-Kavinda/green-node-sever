@@ -152,6 +152,9 @@ export default function DashboardPage() {
     return meta?.moduleCategory === "actuator" ? "actuator" : "sensor";
   };
 
+  const getDeviceStatus = (dev: Device): NonNullable<Device["status"]> =>
+    dev.status ?? (dev.isOnline ? "online" : "warning");
+
   const getActuatorMeta = (dev: Device): { actuatorType: string; subNodeId?: string } => {
     const meta = getActuatorMetaMap()[dev.deviceId];
     return {
@@ -453,6 +456,24 @@ export default function DashboardPage() {
               setGreenhouseDevices((prev) => prev.map(updateHb));
               setAllDevices((prev) => prev.map(updateHb));
             }
+          } else if (payload.event === "device_status_changed" && payload.data?.deviceId) {
+            const statusUpdate = payload.data as {
+              deviceId: string;
+              status: NonNullable<Device["status"]>;
+              isOnline: boolean;
+              lastSeen?: string;
+            };
+            const updateStatus = (dev: Device) =>
+              dev.deviceId === statusUpdate.deviceId
+                ? {
+                    ...dev,
+                    status: statusUpdate.status,
+                    isOnline: statusUpdate.isOnline,
+                    lastSeen: statusUpdate.lastSeen || dev.lastSeen,
+                  }
+                : dev;
+            setGreenhouseDevices((prev) => prev.map(updateStatus));
+            setAllDevices((prev) => prev.map(updateStatus));
           } else if (payload.event === "device_updated" && payload.data?.deviceId) {
             const updatedDev = payload.data as Device;
             const mergeUpdated = (dev: Device) =>
@@ -954,6 +975,7 @@ export default function DashboardPage() {
 
             const renderModuleCard = (dev: Device) => {
               const isActuator = getModuleCategory(dev) === "actuator";
+              const deviceStatus = getDeviceStatus(dev);
               const actuatorMeta = getActuatorMeta(dev);
               const isFocused = isActuator
                 ? dev.deviceId === (selectedActuator?.deviceId || focusedActuatorId)
@@ -1014,23 +1036,29 @@ export default function DashboardPage() {
                     <div className="flex items-center space-x-1.5 shrink-0">
                       <div
                         className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${
-                          dev.isOnline
+                          deviceStatus === "online"
                             ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                            : r
-                            ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
-                            : "bg-amber-500/10 text-amber-300 border-amber-500/20"
+                            : deviceStatus === "warning"
+                            ? "bg-amber-500/10 text-amber-300 border-amber-500/20"
+                            : "bg-rose-500/10 text-rose-400 border-rose-500/20"
                         }`}
                       >
                         <span
                           className={`w-2 h-2 rounded-full ${
-                            dev.isOnline
+                            deviceStatus === "online"
                               ? "bg-emerald-400 animate-pulse"
-                              : r
-                              ? "bg-rose-400"
-                              : "bg-amber-400"
+                              : deviceStatus === "warning"
+                              ? "bg-amber-400"
+                              : "bg-rose-400"
                           }`}
                         />
-                        <span>{dev.isOnline ? "Online" : r ? "Offline" : "Pending Sync"}</span>
+                        <span>
+                          {deviceStatus === "online"
+                            ? "Online"
+                            : deviceStatus === "warning"
+                            ? "Warning"
+                            : "Offline"}
+                        </span>
                       </div>
 
                       <button
@@ -1180,10 +1208,14 @@ export default function DashboardPage() {
                               >
                                 <span className="truncate">{dev.name}</span>
                                 <span
-                                  title={dev.isOnline ? "Online" : "Offline"}
-                                  aria-label={dev.isOnline ? "Online" : "Offline"}
+                                  title={getDeviceStatus(dev)}
+                                  aria-label={getDeviceStatus(dev)}
                                   className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                                    dev.isOnline ? "bg-emerald-400" : "bg-rose-500"
+                                    getDeviceStatus(dev) === "online"
+                                      ? "bg-emerald-400"
+                                      : getDeviceStatus(dev) === "warning"
+                                      ? "bg-amber-400"
+                                      : "bg-rose-500"
                                   }`}
                                 />
                               </button>
@@ -1248,10 +1280,14 @@ export default function DashboardPage() {
                               >
                                 <span className="truncate">{dev.name}</span>
                                 <span
-                                  title={dev.isOnline ? "Online" : "Offline"}
-                                  aria-label={dev.isOnline ? "Online" : "Offline"}
+                                  title={getDeviceStatus(dev)}
+                                  aria-label={getDeviceStatus(dev)}
                                   className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                                    dev.isOnline ? "bg-emerald-400" : "bg-rose-500"
+                                    getDeviceStatus(dev) === "online"
+                                      ? "bg-emerald-400"
+                                      : getDeviceStatus(dev) === "warning"
+                                      ? "bg-amber-400"
+                                      : "bg-rose-500"
                                   }`}
                                 />
                               </button>
