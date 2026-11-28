@@ -639,13 +639,33 @@ export default function DashboardPage() {
 
   const handleClearLogs = async () => {
     if (!confirm("Are you sure you want to clear module & actuator activity logs?")) return;
-    await Promise.all([clearAllLogs(), clearHubCommands()]);
-    setLogs([]);
-    setHubCommands([]);
-    setLiveHubCmdUpdate((prev) => ({
-      seq: (prev?.seq ?? 0) + 1,
-      cleared: true,
-    }));
+    try {
+      const [logsCleared, commandsCleared] = await Promise.all([
+        clearAllLogs(),
+        clearHubCommands(),
+      ]);
+
+      if (logsCleared) setLogs([]);
+      if (commandsCleared) {
+        setHubCommands([]);
+        setLiveHubCmdUpdate((prev) => ({
+          seq: (prev?.seq ?? 0) + 1,
+          cleared: true,
+        }));
+      }
+
+      if (!logsCleared || !commandsCleared) {
+        handleNotify({ type: "error", text: "Some activity records could not be cleared." });
+        return;
+      }
+
+      handleNotify({ type: "success", text: "Activity records cleared." });
+    } catch (err) {
+      handleNotify({
+        type: "error",
+        text: err instanceof Error ? err.message : "Failed to clear activity records.",
+      });
+    }
   };
 
   type ModuleActivityEntry = {
