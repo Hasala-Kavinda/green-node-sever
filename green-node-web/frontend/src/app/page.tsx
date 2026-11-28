@@ -1117,6 +1117,25 @@ export default function DashboardPage() {
                     </div>
                   )}
 
+                  {(dev.greenhouseId || activeGreenhouseId) && (
+                    <div className="flex justify-end mt-3">
+                      <Link
+                        href={`/analytics/${encodeURIComponent(dev.greenhouseId || activeGreenhouseId)}${
+                          isActuator ? "" : `?deviceId=${encodeURIComponent(dev.deviceId)}`
+                        }`}
+                        onClick={(event) => event.stopPropagation()}
+                        className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+                          isActuator
+                            ? "border-cyan-500/25 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20"
+                            : "border-emerald-500/25 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
+                        }`}
+                      >
+                        <Activity className="w-3.5 h-3.5" />
+                        Analytics
+                      </Link>
+                    </div>
+                  )}
+
                   {/* Prominent Device UUID Box with 1-Click Copy */}
                   <div className="bg-[#0B0B0E] border border-[#24242C] rounded-xl p-2.5 my-3 flex items-center justify-between gap-2">
                     <div className="overflow-hidden">

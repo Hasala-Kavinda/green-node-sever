@@ -89,6 +89,10 @@ export default function GreenhouseAnalyticsDetailPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const greenhouseId = decodeURIComponent(params?.id || "");
+  const [requestedDeviceId] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return new URLSearchParams(window.location.search).get("deviceId") || "";
+  });
 
   const [activeGreenhouse, setActiveGreenhouse] = useState<Greenhouse | null>(null);
   const [greenhouseDevices, setGreenhouseDevices] = useState<Device[]>([]);
@@ -155,6 +159,12 @@ export default function GreenhouseAnalyticsDetailPage() {
         setActiveGreenhouse(overview);
         const devs = overview.devices || [];
         setGreenhouseDevices(devs);
+        if (
+          requestedDeviceId &&
+          devs.some((device) => device.deviceId === requestedDeviceId && isSensorDevice(device))
+        ) {
+          setSelectedModuleId(requestedDeviceId);
+        }
         if (typeof window !== "undefined") {
           localStorage.setItem("green_node_active_greenhouse", greenhouseId);
           localStorage.setItem("green_node_cached_greenhouse", JSON.stringify(overview));
@@ -168,7 +178,7 @@ export default function GreenhouseAnalyticsDetailPage() {
     } finally {
       setLoadingOverview(false);
     }
-  }, [greenhouseId]);
+  }, [greenhouseId, requestedDeviceId]);
 
   useEffect(() => {
     if (!isAuthenticated || !greenhouseId) return;
