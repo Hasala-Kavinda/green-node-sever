@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
@@ -74,6 +74,7 @@ export default function NewRegistersPage() {
     category: "sensor" | "actuator";
   } | null>(null);
   const [copiedUuid, setCopiedUuid] = useState(false);
+  const loadDataRef = useRef<() => Promise<void>>(async () => {});
 
   const notify = (type: "success" | "error", text: string) => {
     setFeedbackMsg({ type, text });
@@ -116,6 +117,7 @@ export default function NewRegistersPage() {
       // ignore
     }
   };
+  loadDataRef.current = loadData;
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -133,7 +135,7 @@ export default function NewRegistersPage() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      loadData();
+      void loadDataRef.current();
     }
   }, [isAuthenticated]);
 

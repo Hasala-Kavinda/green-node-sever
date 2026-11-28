@@ -40,6 +40,35 @@ import {
   Power,
 } from "lucide-react";
 
+function getActuatorMetaMap(): Record<string, { moduleCategory: "sensor" | "actuator"; actuatorType?: string; subNodeId?: string }> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem("green_node_actuator_meta");
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function getModuleCategory(dev: Device): "sensor" | "actuator" {
+  if (dev.moduleCategory === "actuator" || dev.sensorType === "actuator") return "actuator";
+  if (dev.moduleCategory === "sensor") return "sensor";
+  const meta = getActuatorMetaMap()[dev.deviceId];
+  return meta?.moduleCategory === "actuator" ? "actuator" : "sensor";
+}
+
+function getDeviceStatus(dev: Device): NonNullable<Device["status"]> {
+  return dev.status ?? (dev.isOnline ? "online" : "warning");
+}
+
+function getActuatorMeta(dev: Device): { actuatorType: string; subNodeId?: string } {
+  const meta = getActuatorMetaMap()[dev.deviceId];
+  return {
+    actuatorType: dev.actuatorType || meta?.actuatorType || "fan",
+    subNodeId: dev.subNodeId || meta?.subNodeId,
+  };
+}
+
 export default function DashboardPage() {
   const { isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
@@ -141,34 +170,6 @@ export default function DashboardPage() {
   const [hubCommands, setHubCommands] = useState<HubCommandRecord[]>([]);
   const [activityFilter, setActivityFilter] = useState<"all" | "actuators">("all");
 
-  const getActuatorMetaMap = (): Record<string, { moduleCategory: "sensor" | "actuator"; actuatorType?: string; subNodeId?: string }> => {
-    if (typeof window === "undefined") return {};
-    try {
-      const raw = localStorage.getItem("green_node_actuator_meta");
-      return raw ? JSON.parse(raw) : {};
-    } catch {
-      return {};
-    }
-  };
-
-  const getModuleCategory = (dev: Device): "sensor" | "actuator" => {
-    if (dev.moduleCategory === "actuator" || dev.sensorType === "actuator") return "actuator";
-    if (dev.moduleCategory === "sensor") return "sensor";
-    const meta = getActuatorMetaMap()[dev.deviceId];
-    return meta?.moduleCategory === "actuator" ? "actuator" : "sensor";
-  };
-
-  const getDeviceStatus = (dev: Device): NonNullable<Device["status"]> =>
-    dev.status ?? (dev.isOnline ? "online" : "warning");
-
-  const getActuatorMeta = (dev: Device): { actuatorType: string; subNodeId?: string } => {
-    const meta = getActuatorMetaMap()[dev.deviceId];
-    return {
-      actuatorType: dev.actuatorType || meta?.actuatorType || "fan",
-      subNodeId: dev.subNodeId || meta?.subNodeId,
-    };
-  };
-
   // Feedback & Live Updates
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [liveHubCmdUpdate, setLiveHubCmdUpdate] = useState<{
@@ -180,6 +181,13 @@ export default function DashboardPage() {
   const socketRef = useRef<WebSocket | null>(null);
   const focusedDeviceIdRef = useRef<string | null>(focusedDeviceId);
   const greenhouseLoadRequestRef = useRef(0);
+  const deviceViewFilterRef = useRef(deviceViewFilter);
+  const loadHierarchyRef = useRef<() => Promise<void>>(async () => {});
+  const loadGreenhouseDataRef = useRef<(ghId: string, preloadedDevices?: Device[]) => Promise<void>>(
+    async () => {}
+  );
+  const initWebSocketRef = useRef<(onUnexpectedClose?: () => void) => void>(() => {});
+  deviceViewFilterRef.current = deviceViewFilter;
 
   // Keep focusedDeviceIdRef updated for WebSocket and async closures
   useEffect(() => {
@@ -224,15 +232,15 @@ export default function DashboardPage() {
   // Initial Data Load & WebSocket Subscription
   useEffect(() => {
     if (!isAuthenticated) return;
-    loadHierarchy();
-    loadLogs();
+    void loadHierarchyRef.current();
+    void loadLogs();
 
     let disposed = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
     const connectWs = () => {
       if (disposed) return;
-      initWebSocket(() => {
+      initWebSocketRef.current(() => {
         if (!disposed) {
           reconnectTimer = setTimeout(connectWs, 3000);
         }
@@ -297,11 +305,12 @@ export default function DashboardPage() {
       setIsLoadingGreenhouses(false);
     }
   };
+  loadHierarchyRef.current = loadHierarchy;
 
   // Reload Greenhouse Details & Assigned Devices whenever activeGreenhouseId changes
   useEffect(() => {
     if (!isAuthenticated || !activeGreenhouseId) return;
-    loadGreenhouseData(activeGreenhouseId);
+    void loadGreenhouseDataRef.current(activeGreenhouseId);
   }, [activeGreenhouseId, isAuthenticated]);
 
   const loadGreenhouseData = async (ghId: string, preloadedDevices?: Device[]) => {
@@ -343,7 +352,7 @@ export default function DashboardPage() {
       let chosenDeviceId: string | null = null;
       if (devInGh) {
         chosenDeviceId = devInGh.deviceId;
-      } else if (deviceViewFilter === "all" && devInAll) {
+      } else if (deviceViewFilterRef.current === "all" && devInAll) {
         chosenDeviceId = devInAll.deviceId;
       } else if (ghSensors.length > 0) {
         chosenDeviceId = ghSensors[0].deviceId;
@@ -374,6 +383,7 @@ export default function DashboardPage() {
       }
     }
   };
+  loadGreenhouseDataRef.current = loadGreenhouseData;
 
   const loadFocusedNodeData = async (devId: string) => {
     if (!devId) return;
@@ -565,6 +575,7 @@ export default function DashboardPage() {
       onUnexpectedClose?.();
     }
   };
+  initWebSocketRef.current = initWebSocket;
 
   const handleNotify = (msg: { type: "success" | "error"; text: string }) => {
     setFeedbackMsg(msg);
