@@ -8,6 +8,7 @@ import fs from 'fs';
 import os from 'os';
 
 import { config } from './config/env.js';
+import { isAllowedCorsOrigin } from './config/cors.js';
 import { connectDatabase, disconnectDatabase } from './config/database.js';
 import { initWebSocketServer } from './services/websocket.service.js';
 import { startDeviceStatusMonitor } from './services/deviceStatusMonitor.service.js';
@@ -45,25 +46,9 @@ let stopDeviceStatusMonitor: (() => void) | null = null;
 initWebSocketServer(server);
 
 // --- Dynamic CORS Configuration for Next.js Frontend Communication ---
-const allowedOrigins = [
-  config.frontendUrl,
-  ...(config.corsOrigin === '*' ? ['*'] : config.corsOrigin.split(',').map((s: string) => s.trim()))
-].filter(Boolean);
-
 app.use(cors({
   origin: (origin, callback) => {
-    // 1. Allow non-browser requests (ESP32 microcontrollers, curl, postman)
-    if (!origin) return callback(null, true);
-    // 2. Allow if wildcard * is configured
-    if (allowedOrigins.includes('*')) return callback(null, true);
-    // 3. Allow explicit configured frontend URL or CORS origin list
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-    // 4. In development, allow any localhost port
-    if (config.nodeEnv !== 'production' && origin.startsWith('http://localhost:')) {
-      return callback(null, true);
-    }
-    // Permissive fallback
-    return callback(null, true);
+    callback(null, isAllowedCorsOrigin(origin, config));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],

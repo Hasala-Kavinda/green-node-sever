@@ -9,7 +9,7 @@
     "build": "npm install && tsc",
     "start": "node dist/app.js",
     "simulate": "tsx scripts/simulate_node.ts",
-    "test": "node --import tsx --test tests/reading.service.test.ts"
+    "test": "node --import tsx --test tests/*.test.ts"
   },
   "keywords": ["iot", "sensors", "humidity", "temperature", "soil-moisture", "light", "greenhouse", "express", "mongodb"],
   "author": "",
