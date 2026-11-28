@@ -75,6 +75,7 @@ export default function DashboardPage() {
     }
     return [];
   });
+  const [greenhouses, setGreenhouses] = useState<Greenhouse[]>([]);
   const [allDevices, setAllDevices] = useState<Device[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -89,7 +90,7 @@ export default function DashboardPage() {
       const saved = localStorage.getItem("green_node_device_filter");
       if (saved === "all" || saved === "current") return saved;
     }
-    return "all";
+    return "current";
   });
   const [copiedDeviceId, setCopiedDeviceId] = useState<string | null>(null);
   const [focusedActuatorId, setFocusedActuatorId] = useState<string | null>(null);
@@ -247,6 +248,7 @@ export default function DashboardPage() {
   const loadHierarchy = async () => {
     try {
       const [ghs, devs] = await Promise.all([fetchGreenhouses(), fetchDevices()]);
+      setGreenhouses(ghs);
       if (Array.isArray(devs)) {
         setAllDevices(devs);
         if (typeof window !== "undefined") {
@@ -256,15 +258,27 @@ export default function DashboardPage() {
 
       if (ghs.length > 0) {
         const savedGh = typeof window !== "undefined" ? localStorage.getItem("green_node_active_greenhouse") : null;
-        const targetGhId = savedGh && ghs.some((g) => g.greenhouseId === savedGh) ? savedGh : ghs[0].greenhouseId;
+        const targetGhId = savedGh && ghs.some((g) => g.greenhouseId === savedGh) ? savedGh : "";
         setActiveGreenhouseId(targetGhId);
-        if (typeof window !== "undefined") {
-          localStorage.setItem("green_node_active_greenhouse", targetGhId);
+        if (targetGhId) {
+          if (typeof window !== "undefined") {
+            localStorage.setItem("green_node_active_greenhouse", targetGhId);
+          }
+          await loadGreenhouseData(targetGhId, devs);
+        } else {
+          setActiveGreenhouse(null);
+          setGreenhouseDevices([]);
+          setDeviceViewFilter("current");
+          if (typeof window !== "undefined") {
+            localStorage.removeItem("green_node_active_greenhouse");
+            localStorage.setItem("green_node_device_filter", "current");
+          }
         }
-        await loadGreenhouseData(targetGhId, devs);
       } else {
+        setActiveGreenhouseId("");
         setActiveGreenhouse(null);
         setGreenhouseDevices([]);
+        setDeviceViewFilter("current");
       }
     } catch {
       // Backend may be sleeping
@@ -836,6 +850,30 @@ export default function DashboardPage() {
 
             {/* Filter Toggle & Register Action */}
             <div className="flex flex-wrap items-center gap-2.5">
+              <select
+                value={activeGreenhouseId}
+                onChange={(event) => {
+                  const greenhouseId = event.target.value;
+                  setActiveGreenhouseId(greenhouseId);
+                  setDeviceViewFilter("current");
+                  if (typeof window !== "undefined") {
+                    localStorage.setItem("green_node_active_greenhouse", greenhouseId);
+                    localStorage.setItem("green_node_device_filter", "current");
+                  }
+                }}
+                aria-label="Select greenhouse"
+                className="px-3.5 py-2 rounded-xl bg-[#141417] border border-[#282830] text-sm font-medium text-white outline-none focus:border-emerald-500/50"
+              >
+                <option value="" disabled>
+                  {greenhouses.length > 0 ? "Select Greenhouse" : "No Greenhouses"}
+                </option>
+                {greenhouses.map((greenhouse) => (
+                  <option key={greenhouse.greenhouseId} value={greenhouse.greenhouseId}>
+                    {greenhouse.name}
+                  </option>
+                ))}
+              </select>
+
               <div className="flex items-center bg-[#141417] border border-[#282830] rounded-xl p-1 text-sm">
                 <button
                   type="button"
@@ -875,6 +913,7 @@ export default function DashboardPage() {
               <div className="flex items-center bg-[#141417] border border-[#282830] rounded-xl p-1 text-sm">
                 <button
                   type="button"
+                  disabled={!activeGreenhouseId}
                   onClick={() => {
                     setDeviceViewFilter("all");
                     if (typeof window !== "undefined") {
@@ -885,7 +924,7 @@ export default function DashboardPage() {
                     deviceViewFilter === "all"
                       ? "bg-emerald-500 text-white shadow-sm"
                       : "text-[#A1A1A6] hover:text-white"
-                  }`}
+                  } disabled:cursor-not-allowed disabled:opacity-40`}
                 >
                   All Registered ({allDevices.length})
                 </button>
@@ -935,6 +974,18 @@ export default function DashboardPage() {
           {/* Devices Grid */}
           {(() => {
             const displayed = displayedModules;
+
+            if (!activeGreenhouseId) {
+              return (
+                <div className="bg-[#141417] border border-[#282830] rounded-2xl p-12 text-center">
+                  <Cpu className="w-12 h-12 text-emerald-400 mx-auto mb-3" />
+                  <h4 className="text-sm font-semibold text-white">Select a Greenhouse First</h4>
+                  <p className="text-xs text-[#8E8E93] max-w-md mx-auto mt-1">
+                    Choose a greenhouse above to view its registered sensors and actuators.
+                  </p>
+                </div>
+              );
+            }
 
             if (displayed.length === 0) {
               return (
