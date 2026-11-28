@@ -4,6 +4,7 @@ import express from 'express';
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { Device } from '../src/models/Device.js';
+import { Reading } from '../src/models/Reading.js';
 import readingRoutes from '../src/routes/reading.routes.js';
 import { ReadingService } from '../src/services/reading.service.js';
 
@@ -79,6 +80,34 @@ test('saveBatchReadings updates the latest state for every device in a mixed bat
   assert.equal(second?.latestReading?.temperature, 23);
   assert.equal(first?.status, 'online');
   assert.equal(second?.status, 'online');
+});
+
+test('saveBatchReadings rejects unregistered IDs without partially inserting', async () => {
+  const registeredDeviceId = 'c6a2f0c2-7a8a-4a14-9e90-d5fd3ec16606';
+  const unregisteredDeviceId = 'c6a2f0c2-7a8a-4a14-9e90-d5fd3ec16607';
+  await Device.create({ deviceId: registeredDeviceId });
+
+  await assert.rejects(
+    ReadingService.saveBatchReadings([
+      {
+        deviceId: registeredDeviceId,
+        temperature: 22,
+        humidity: 50,
+        soilMoisture: 40,
+        light: 300
+      },
+      {
+        deviceId: unregisteredDeviceId,
+        temperature: 23,
+        humidity: 51,
+        soilMoisture: 41,
+        light: 301
+      }
+    ]),
+    (error: { statusCode?: number }) => error.statusCode === 403
+  );
+
+  assert.equal(await Reading.countDocuments({ deviceId: registeredDeviceId }), 0);
 });
 
 test('GET /api/devices filters by companyId', async () => {

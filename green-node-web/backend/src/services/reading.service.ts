@@ -208,6 +208,15 @@ export class ReadingService {
       registeredDevices.map((d) => [d.deviceId.toLowerCase(), d])
     );
 
+    const unregisteredIds = distinctIds.filter((deviceId) => !registeredMap.has(deviceId));
+    if (unregisteredIds.length > 0) {
+      const err: any = new Error(
+        `Batch contains unregistered device IDs: ${unregisteredIds.join(', ')}`
+      );
+      err.statusCode = 403;
+      throw err;
+    }
+
     const validReadings: any[] = [];
     for (const r of readingsData) {
       const dev = registeredMap.get(r.deviceId.toLowerCase());
@@ -222,12 +231,6 @@ export class ReadingService {
           plant: dev.plant
         });
       }
-    }
-
-    if (validReadings.length === 0) {
-      const err: any = new Error('None of the device IDs in this batch are registered.');
-      err.statusCode = 403;
-      throw err;
     }
 
     const inserted = await Reading.insertMany(validReadings);
