@@ -1491,7 +1491,8 @@ export default function DashboardPage() {
           })()}
           {/* 3. SUB-NODE PAIRING WINDOW & 4. SUB-NODE TO DASHBOARD UUID MAP */}
           <SubNodePairingAndMap
-            devices={allDevices}
+            devices={greenhouseDevices}
+            greenhouseName={activeGreenhouse?.name}
             focusedDeviceId={focusedDeviceId}
             liveCommandUpdate={liveHubCmdUpdate}
             onNotify={handleNotify}

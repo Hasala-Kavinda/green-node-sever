@@ -13,6 +13,7 @@ import {
 
 interface SubNodePairingAndMapProps {
   devices: Device[];
+  greenhouseName?: string;
   focusedDeviceId: string | null;
   liveCommandUpdate: { seq: number; record?: HubCommandRecord; cleared?: boolean } | null;
   onNotify: (msg: { type: "success" | "error"; text: string }) => void;
@@ -20,11 +21,11 @@ interface SubNodePairingAndMapProps {
 }
 
 /**
- * Renders the Sub-Node Pairing Window and Sub-Node to Dashboard UUID Map
- * sections inside the Registered Modules inventory.
+ * Combines sub-node pairing and UUID mapping in one greenhouse-scoped module.
  */
 export default function SubNodePairingAndMap({
   devices,
+  greenhouseName,
   focusedDeviceId,
   liveCommandUpdate,
   onNotify,
@@ -93,7 +94,27 @@ export default function SubNodePairingAndMap({
   };
 
   return (
-    <div className="space-y-8 pt-2">
+    <section className="bg-[#141417] border border-[#282830] rounded-2xl p-5 space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#282830] pb-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-xl bg-cyan-500/10 text-cyan-300">
+            <Radio className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-base font-semibold text-white">Sub-Node Setup</h3>
+            <p className="text-xs text-[#8E8E93]">
+              Pair a sub-node and bind it to a registered dashboard module.
+            </p>
+          </div>
+        </div>
+        {greenhouseName && (
+          <span className="text-xs font-medium text-cyan-300 bg-cyan-500/10 border border-cyan-500/20 rounded-lg px-3 py-1.5">
+            {greenhouseName}
+          </span>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
       {/* 3. SUB-NODE PAIRING WINDOW */}
       <div className="space-y-4">
         <div className="flex items-center space-x-2 text-sm font-semibold text-cyan-300 uppercase tracking-wider">
@@ -259,6 +280,7 @@ export default function SubNodePairingAndMap({
           )}
         </div>
       </div>
-    </div>
+      </div>
+    </section>
   );
 }
