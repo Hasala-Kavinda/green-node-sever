@@ -52,7 +52,10 @@ export class ReadingService {
             status = 'online';
             lastSeen = new Date();
           } else {
-            const failures = (this.actuatorProbeFailures.get(device.deviceId) || 0) + 1;
+            const previousFailures =
+              this.actuatorProbeFailures.get(device.deviceId) ??
+              (device.status === 'offline' ? 3 : device.status === 'warning' ? 1 : 0);
+            const failures = previousFailures + 1;
             this.actuatorProbeFailures.set(device.deviceId, failures);
             status = failures >= 3 ? 'offline' : 'warning';
           }
@@ -1128,6 +1131,7 @@ export class ReadingService {
       const isOk = response.status >= 200 && response.status < 300;
 
       if (isOk) {
+        this.actuatorProbeFailures.delete(device.deviceId);
         await Device.updateOne(
           { deviceId: device.deviceId },
           { $set: { lastSeen: new Date(), status: 'online' } }

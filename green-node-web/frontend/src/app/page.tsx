@@ -78,6 +78,8 @@ export default function DashboardPage() {
   });
   const [greenhouses, setGreenhouses] = useState<Greenhouse[]>([]);
   const [isLoadingGreenhouses, setIsLoadingGreenhouses] = useState(true);
+  const [greenhouseLoadError, setGreenhouseLoadError] = useState<string | null>(null);
+  const [greenhouseDataError, setGreenhouseDataError] = useState<string | null>(null);
   const [allDevices, setAllDevices] = useState<Device[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -176,6 +178,7 @@ export default function DashboardPage() {
 
   const socketRef = useRef<WebSocket | null>(null);
   const focusedDeviceIdRef = useRef<string | null>(focusedDeviceId);
+  const greenhouseLoadRequestRef = useRef(0);
 
   // Keep focusedDeviceIdRef updated for WebSocket and async closures
   useEffect(() => {
@@ -249,6 +252,8 @@ export default function DashboardPage() {
 
   const loadHierarchy = async () => {
     setIsLoadingGreenhouses(true);
+    setGreenhouseLoadError(null);
+    greenhouseLoadRequestRef.current += 1;
     try {
       const [ghs, devs] = await Promise.all([fetchGreenhouses(), fetchDevices()]);
       setGreenhouses(ghs);
@@ -283,8 +288,10 @@ export default function DashboardPage() {
         setGreenhouseDevices([]);
         setDeviceViewFilter("current");
       }
-    } catch {
-      // Backend may be sleeping
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not load greenhouses";
+      setGreenhouseLoadError(message);
+      console.error("Failed to load greenhouse list:", err);
     } finally {
       setIsLoadingGreenhouses(false);
     }
@@ -298,61 +305,66 @@ export default function DashboardPage() {
 
   const loadGreenhouseData = async (ghId: string, preloadedDevices?: Device[]) => {
     if (!ghId) return;
+    const requestId = ++greenhouseLoadRequestRef.current;
+    setGreenhouseDataError(null);
     try {
       const [overview, devs] = await Promise.all([
         fetchGreenhouseOverview(ghId),
         preloadedDevices ? Promise.resolve(preloadedDevices) : fetchDevices(),
       ]);
+      if (requestId !== greenhouseLoadRequestRef.current) return;
+      if (!overview) throw new Error(`Could not load ${ghId} greenhouse details`);
+
       if (Array.isArray(devs)) {
         setAllDevices(devs);
         if (typeof window !== "undefined") {
           localStorage.setItem("green_node_cached_devices", JSON.stringify(devs));
         }
       }
-      if (overview) {
-        setActiveGreenhouse(overview);
-        const ghDevs = overview.devices || [];
-        setGreenhouseDevices(ghDevs);
+      setActiveGreenhouse(overview);
+      const ghDevs = overview.devices || [];
+      setGreenhouseDevices(ghDevs);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("green_node_cached_greenhouse", JSON.stringify(overview));
+        localStorage.setItem("green_node_cached_gh_devices", JSON.stringify(ghDevs));
+      }
+
+      // Preserve current focused sensor or fall back to first available sensor
+      const savedDevId = typeof window !== "undefined" ? localStorage.getItem("green_node_focused_device") : null;
+      const targetId = focusedDeviceIdRef.current || savedDevId;
+      const ghSensors = ghDevs.filter((d) => getModuleCategory(d) === "sensor");
+      const allSensors = (devs || []).filter((d) => getModuleCategory(d) === "sensor");
+
+      const devInGh = ghSensors.find((d) => d.deviceId === targetId);
+      const devInAll = allSensors.find((d) => d.deviceId === targetId);
+
+      let chosenDeviceId: string | null = null;
+      if (devInGh) {
+        chosenDeviceId = devInGh.deviceId;
+      } else if (deviceViewFilter === "all" && devInAll) {
+        chosenDeviceId = devInAll.deviceId;
+      } else if (ghSensors.length > 0) {
+        chosenDeviceId = ghSensors[0].deviceId;
+      } else if (devInAll) {
+        chosenDeviceId = devInAll.deviceId;
+      } else if (allSensors.length > 0) {
+        chosenDeviceId = allSensors[0].deviceId;
+      }
+
+      if (chosenDeviceId) {
+        setFocusedDeviceId(chosenDeviceId);
         if (typeof window !== "undefined") {
-          localStorage.setItem("green_node_cached_greenhouse", JSON.stringify(overview));
-          localStorage.setItem("green_node_cached_gh_devices", JSON.stringify(ghDevs));
+          localStorage.setItem("green_node_focused_device", chosenDeviceId);
         }
-
-        // Preserve current focused sensor or fall back to first available sensor
-        const savedDevId = typeof window !== "undefined" ? localStorage.getItem("green_node_focused_device") : null;
-        const targetId = focusedDeviceIdRef.current || savedDevId;
-        const ghSensors = ghDevs.filter((d) => getModuleCategory(d) === "sensor");
-        const allSensors = (devs || []).filter((d) => getModuleCategory(d) === "sensor");
-
-        const devInGh = ghSensors.find((d) => d.deviceId === targetId);
-        const devInAll = allSensors.find((d) => d.deviceId === targetId);
-
-        let chosenDeviceId: string | null = null;
-        if (devInGh) {
-          chosenDeviceId = devInGh.deviceId;
-        } else if (deviceViewFilter === "all" && devInAll) {
-          chosenDeviceId = devInAll.deviceId;
-        } else if (ghSensors.length > 0) {
-          chosenDeviceId = ghSensors[0].deviceId;
-        } else if (devInAll) {
-          chosenDeviceId = devInAll.deviceId;
-        } else if (allSensors.length > 0) {
-          chosenDeviceId = allSensors[0].deviceId;
-        }
-
-        if (chosenDeviceId) {
-          setFocusedDeviceId(chosenDeviceId);
-          if (typeof window !== "undefined") {
-            localStorage.setItem("green_node_focused_device", chosenDeviceId);
-          }
-          await loadFocusedNodeData(chosenDeviceId);
-        } else {
-          setFocusedDeviceId(null);
-          setFocusedLatestReading(null);
-          setRecentReadings([]);
-        }
+        await loadFocusedNodeData(chosenDeviceId);
+      } else {
+        setFocusedDeviceId(null);
+        setFocusedLatestReading(null);
+        setRecentReadings([]);
       }
     } catch (err) {
+      if (requestId !== greenhouseLoadRequestRef.current) return;
+      setGreenhouseDataError(err instanceof Error ? err.message : "Could not load greenhouse details");
       console.error("Failed to load greenhouse data:", err);
     }
   };
@@ -802,6 +814,18 @@ export default function DashboardPage() {
                 />
               ))}
             </div>
+          ) : greenhouseLoadError ? (
+            <div role="alert" className="rounded-2xl border border-rose-500/30 bg-[#141417] p-10 text-center">
+              <h3 className="text-base font-semibold text-rose-300">Could Not Load Greenhouses</h3>
+              <p className="mt-2 text-sm text-[#A1A1A6]">{greenhouseLoadError}</p>
+              <button
+                type="button"
+                onClick={loadHierarchy}
+                className="mt-5 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-400 transition"
+              >
+                Retry
+              </button>
+            </div>
           ) : greenhouses.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {greenhouses.map((greenhouse) => {
@@ -818,6 +842,7 @@ export default function DashboardPage() {
                     key={greenhouse.greenhouseId}
                     type="button"
                     onClick={() => {
+                      greenhouseLoadRequestRef.current += 1;
                       setActiveGreenhouseId(greenhouse.greenhouseId);
                       setActiveGreenhouse(greenhouse);
                       setGreenhouseDevices([]);
@@ -940,6 +965,19 @@ export default function DashboardPage() {
 
       {/* Main Content */}
       <main className="flex-1 max-w-7xl mx-auto w-full px-6 py-8 space-y-8">
+        {greenhouseDataError && (
+          <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
+            <span>{greenhouseDataError}</span>
+            <button
+              type="button"
+              onClick={() => loadGreenhouseData(activeGreenhouseId)}
+              className="font-semibold underline underline-offset-2 hover:text-white"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
         {/* REGISTERED MODULES INVENTORY (SENSORS & ACTUATORS) */}
         <section className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
@@ -968,7 +1006,10 @@ export default function DashboardPage() {
               </div>
               <button
                 type="button"
-                onClick={() => setHasConfirmedGreenhouse(false)}
+                onClick={() => {
+                  greenhouseLoadRequestRef.current += 1;
+                  setHasConfirmedGreenhouse(false);
+                }}
                 className="px-3.5 py-2 rounded-xl border border-[#282830] bg-[#141417] text-sm font-medium text-[#A1A1A6] hover:text-white transition"
               >
                 Change Greenhouse

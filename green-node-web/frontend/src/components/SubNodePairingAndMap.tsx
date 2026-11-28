@@ -44,20 +44,18 @@ export default function SubNodePairingAndMap({
   const [mapUuid, setMapUuid] = useState<string>(focusedDeviceId || "");
 
   useEffect(() => {
-    if (devices.length > 0 && mapUuid && !devices.some((d) => d.deviceId === mapUuid)) {
-      setMapUuid(
-        focusedDeviceId && devices.some((d) => d.deviceId === focusedDeviceId)
-          ? focusedDeviceId
-          : ""
-      );
-    } else if (
-      !mapUuid &&
-      focusedDeviceId &&
-      (devices.length === 0 || devices.some((d) => d.deviceId === focusedDeviceId))
-    ) {
-      setMapUuid(focusedDeviceId);
-    }
+    if (devices.some((device) => device.deviceId === mapUuid)) return;
+    const nextMapUuid =
+      focusedDeviceId && devices.some((device) => device.deviceId === focusedDeviceId)
+        ? focusedDeviceId
+        : "";
+    if (mapUuid !== nextMapUuid) setMapUuid(nextMapUuid);
   }, [devices, focusedDeviceId, mapUuid]);
+
+  const isPairNameValid = /^[^\s"]{1,15}$/.test(pairName.trim());
+  const isPairWindowValid = Number.isInteger(pairSeconds) && pairSeconds >= 5 && pairSeconds <= 600;
+  const isMapSnIdValid = /^[^\s"]{1,48}$/.test(mapSnId.trim());
+  const hasAvailableMapDevice = devices.some((device) => device.deviceId === mapUuid);
 
   const loadHubStatus = useCallback(async () => {
     try {
@@ -175,7 +173,7 @@ export default function SubNodePairingAndMap({
           <div className="grid grid-cols-2 gap-3 pt-1">
             <button
               type="button"
-              disabled={!pairName.trim() || busyKey === "pair"}
+              disabled={!isPairNameValid || !isPairWindowValid || busyKey !== null}
               onClick={() =>
                 dispatch("pair", {
                   type: "pair",
@@ -192,7 +190,7 @@ export default function SubNodePairingAndMap({
 
             <button
               type="button"
-              disabled={busyKey === "cancel"}
+              disabled={busyKey !== null}
               onClick={() => dispatch("cancel", { type: "cancel" })}
               className="py-2.5 px-4 bg-[#1C1C22] hover:bg-amber-500/20 hover:text-amber-300 hover:border-amber-500/40 text-[#C7C7CC] border border-[#303038] disabled:opacity-50 rounded-xl text-sm font-semibold transition flex items-center justify-center space-x-2"
             >
@@ -218,7 +216,7 @@ export default function SubNodePairingAndMap({
             </div>
             <button
               type="button"
-              disabled={busyKey === "maps"}
+              disabled={busyKey !== null}
               onClick={() => dispatch("maps", { type: "maps" })}
               className="px-3 py-1.5 bg-[#1C1C22] hover:bg-[#282830] text-xs font-semibold text-[#C7C7CC] hover:text-white rounded-xl border border-[#303038] transition flex items-center space-x-1.5"
             >
@@ -257,7 +255,7 @@ export default function SubNodePairingAndMap({
                 </select>
                 <button
                   type="button"
-                  disabled={!mapSnId.trim() || !mapUuid.trim() || busyKey === "map"}
+                  disabled={!isMapSnIdValid || !hasAvailableMapDevice || busyKey !== null}
                   onClick={() =>
                     dispatch("map", {
                       type: "map",

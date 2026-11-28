@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import {
   fetchGreenhouseOverview,
@@ -88,11 +88,9 @@ export default function GreenhouseAnalyticsDetailPage() {
   const { isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
   const params = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
   const greenhouseId = decodeURIComponent(params?.id || "");
-  const [requestedDeviceId] = useState(() => {
-    if (typeof window === "undefined") return "";
-    return new URLSearchParams(window.location.search).get("deviceId") || "";
-  });
+  const requestedDeviceId = searchParams.get("deviceId") || "";
 
   const [activeGreenhouse, setActiveGreenhouse] = useState<Greenhouse | null>(null);
   const [greenhouseDevices, setGreenhouseDevices] = useState<Device[]>([]);
@@ -103,6 +101,7 @@ export default function GreenhouseAnalyticsDetailPage() {
 
   const socketRef = useRef<WebSocket | null>(null);
   const ghDevicesRef = useRef<Device[]>([]);
+  const dataLoadRequestRef = useRef(0);
   const selectedModuleIdRef = useRef<string>(selectedModuleId);
   const windowSizeRef = useRef<15 | 30 | 60>(windowSize);
 
@@ -141,6 +140,7 @@ export default function GreenhouseAnalyticsDetailPage() {
 
   const loadData = useCallback(async () => {
     if (!greenhouseId) return;
+    const requestId = ++dataLoadRequestRef.current;
     const modFilter = selectedModuleIdRef.current;
     const fetchLimit = windowSizeRef.current;
     try {
@@ -154,6 +154,8 @@ export default function GreenhouseAnalyticsDetailPage() {
           sortOrder: "desc",
         }),
       ]);
+
+      if (requestId !== dataLoadRequestRef.current) return;
 
       if (overview) {
         setActiveGreenhouse(overview);
@@ -176,7 +178,7 @@ export default function GreenhouseAnalyticsDetailPage() {
     } catch {
       // ignore transient errors
     } finally {
-      setLoadingOverview(false);
+      if (requestId === dataLoadRequestRef.current) setLoadingOverview(false);
     }
   }, [greenhouseId, requestedDeviceId]);
 
