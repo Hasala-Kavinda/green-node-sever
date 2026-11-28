@@ -233,31 +233,45 @@ export class ReadingService {
     const inserted = await Reading.insertMany(validReadings);
 
     if (inserted.length > 0) {
-      const latest = inserted.reduce((prev, curr) =>
-        new Date(curr.timestamp) > new Date(prev.timestamp) ? curr : prev
-      );
-      const dev = registeredMap.get(latest.deviceId.toLowerCase());
+      const latestByDevice = new Map<string, (typeof inserted)[number]>();
+      for (const reading of inserted) {
+        const deviceId = reading.deviceId.toLowerCase();
+        const previous = latestByDevice.get(deviceId);
+        if (!previous || reading.timestamp > previous.timestamp) {
+          latestByDevice.set(deviceId, reading);
+        }
+      }
 
-      if (dev) {
-        await Device.updateOne(
-          { _id: dev._id },
-          {
-            $set: {
-              lastSeen: latest.timestamp,
-              status: 'online',
-              latestReading: {
-                temperature: latest.temperature,
-                humidity: latest.humidity,
-                soilMoisture: latest.soilMoisture,
-                light: latest.light,
-                espTemperature: latest.espTemperature,
-                wifiSsid: latest.wifiSsid,
-                timestamp: latest.timestamp
+      await Promise.all(
+        Array.from(latestByDevice, async ([deviceId, latest]) => {
+          const dev = registeredMap.get(deviceId);
+          if (!dev) return;
+
+          await Device.updateOne(
+            { _id: dev._id },
+            {
+              $set: {
+                lastSeen: latest.timestamp,
+                status: 'online',
+                latestReading: {
+                  temperature: latest.temperature,
+                  humidity: latest.humidity,
+                  soilMoisture: latest.soilMoisture,
+                  light: latest.light,
+                  espTemperature: latest.espTemperature,
+                  wifiSsid: latest.wifiSsid,
+                  timestamp: latest.timestamp
+                }
               }
             }
-          }
-        );
-      }
+          );
+        })
+      );
+
+      const latest = inserted.reduce((prev, curr) =>
+        curr.timestamp > prev.timestamp ? curr : prev
+      );
+      const dev = registeredMap.get(latest.deviceId.toLowerCase());
 
       broadcast('batch_readings', {
         count: inserted.length,
