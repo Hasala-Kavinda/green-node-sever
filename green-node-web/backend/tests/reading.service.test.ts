@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
+import express from 'express';
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { Device } from '../src/models/Device.js';
+import readingRoutes from '../src/routes/reading.routes.js';
 import { ReadingService } from '../src/services/reading.service.js';
 
 let mongoServer: MongoMemoryServer;
@@ -77,4 +79,38 @@ test('saveBatchReadings updates the latest state for every device in a mixed bat
   assert.equal(second?.latestReading?.temperature, 23);
   assert.equal(first?.status, 'online');
   assert.equal(second?.status, 'online');
+});
+
+test('GET /api/devices filters by companyId', async () => {
+  const requestedDeviceId = 'c6a2f0c2-7a8a-4a14-9e90-d5fd3ec16604';
+  const otherDeviceId = 'c6a2f0c2-7a8a-4a14-9e90-d5fd3ec16605';
+  await Device.create([
+    { deviceId: requestedDeviceId, companyId: 'company-one' },
+    { deviceId: otherDeviceId, companyId: 'company-two' }
+  ]);
+
+  const app = express();
+  app.use('/api', readingRoutes);
+  const server = app.listen(0);
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once('listening', resolve);
+      server.once('error', reject);
+    });
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Test server did not bind to a TCP port');
+
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/api/devices?companyId=company-one`
+    );
+    const body = await response.json() as { data: Array<{ deviceId: string }> };
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(body.data.map((device) => device.deviceId), [requestedDeviceId]);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+  }
 });

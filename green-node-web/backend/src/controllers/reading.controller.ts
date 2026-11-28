@@ -458,8 +458,8 @@ export class ReadingController {
   static async getDevices(req: Request, res: Response): Promise<void> {
     try {
       const greenhouseId = req.query.greenhouseId as string | undefined;
-      const companyLocation = req.query.companyLocation as string | undefined;
-      const devices = await ReadingService.getDevices(greenhouseId, companyLocation);
+      const companyId = req.query.companyId as string | undefined;
+      const devices = await ReadingService.getDevices(greenhouseId, companyId);
 
       res.json({
         success: true,
