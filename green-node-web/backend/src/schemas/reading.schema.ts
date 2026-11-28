@@ -182,6 +182,10 @@ export const heartbeatSchema = z.object({
   uptimeSeconds: z.number().optional()
 });
 
+export const pingDeviceQuerySchema = z.object({
+  timeout: z.coerce.number().int().min(1).max(30000).default(2500)
+});
+
 export const assignDeviceToGreenhouseSchema = z.object({
   deviceId: z.string().uuid({ message: 'deviceId must be a valid UUID' }).transform((val) => val.toLowerCase())
 });

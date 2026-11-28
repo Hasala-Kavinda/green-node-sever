@@ -9,7 +9,8 @@ import {
   heartbeatSchema,
   createCompanySchema,
   createGreenhouseSchema,
-  assignDeviceToGreenhouseSchema
+  assignDeviceToGreenhouseSchema,
+  pingDeviceQuerySchema
 } from '../schemas/reading.schema.js';
 
 export class ReadingController {
@@ -606,9 +607,17 @@ export class ReadingController {
   static async pingDevice(req: Request, res: Response): Promise<void> {
     try {
       const deviceId = Array.isArray(req.params.deviceId) ? req.params.deviceId[0] : req.params.deviceId;
-      const timeoutMs = req.query.timeout ? parseInt(req.query.timeout as string, 10) : 2500;
+      const parsedQuery = pingDeviceQuerySchema.safeParse(req.query);
+      if (!parsedQuery.success) {
+        res.status(400).json({
+          success: false,
+          error: 'Invalid ping timeout',
+          details: parsedQuery.error.issues
+        });
+        return;
+      }
 
-      const result = await ReadingService.pingEspNode(deviceId, timeoutMs);
+      const result = await ReadingService.pingEspNode(deviceId, parsedQuery.data.timeout);
 
       if (!result.found) {
         res.status(404).json({
