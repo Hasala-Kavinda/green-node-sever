@@ -20,7 +20,7 @@ export interface IDevice extends Document {
   heartbeatTimeoutSeconds: number; // Seconds before marking device as offline (default: 60)
   rssi?: number;                   // WiFi Signal Strength in dBm
   wifiSsid?: string;               // Current connected Wi-Fi Network SSID
-  lastSeen: Date;
+  lastSeen?: Date;
   status: 'online' | 'warning' | 'offline';
   latestReading?: {
     temperature: number;
@@ -148,12 +148,12 @@ const DeviceSchema: Schema = new Schema<IDevice>(
     },
     lastSeen: {
       type: Date,
-      default: Date.now
+      required: false
     },
     status: {
       type: String,
       enum: ['online', 'warning', 'offline'],
-      default: 'online'
+      default: 'offline'
     },
     latestReading: {
       temperature: Number,

@@ -33,6 +33,17 @@ test('recordHeartbeat returns the updated online device', async () => {
   assert.equal(result.rssi, -48);
 });
 
+test('new devices remain offline until they report a heartbeat', async () => {
+  const deviceId = 'c6a2f0c2-7a8a-4a14-9e90-d5fd3ec16603';
+  await Device.create({ deviceId });
+
+  const health = await ReadingService.getDeviceHealth(deviceId);
+
+  assert.equal(health?.status, 'offline');
+  assert.equal(health?.isOnline, false);
+  assert.equal(health?.lastSeen, undefined);
+});
+
 test('saveBatchReadings updates the latest state for every device in a mixed batch', async () => {
   const firstDeviceId = 'c6a2f0c2-7a8a-4a14-9e90-d5fd3ec16601';
   const secondDeviceId = 'c6a2f0c2-7a8a-4a14-9e90-d5fd3ec16602';
